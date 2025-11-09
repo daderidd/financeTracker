@@ -1928,9 +1928,9 @@ const ExpenseTracker = () => {
     // Sort by absolute change
     changes.sort((a, b) => Math.abs(b.absoluteChange) - Math.abs(a.absoluteChange));
 
-    // Get top 3 increases and decreases
-    const increases = changes.filter(c => c.absoluteChange > 0).slice(0, 3);
-    const decreases = changes.filter(c => c.absoluteChange < 0).slice(0, 3);
+    // Get top 5 increases and decreases
+    const increases = changes.filter(c => c.absoluteChange > 0).slice(0, 5);
+    const decreases = changes.filter(c => c.absoluteChange < 0).slice(0, 5);
 
     return { increases, decreases };
   };
@@ -2319,23 +2319,23 @@ const ExpenseTracker = () => {
 
               return (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Top 3 Increases */}
+                  {/* Top 5 Increases */}
                   <div>
-                    <h3 className="text-md font-medium mb-3 text-red-600">📈 Top 3 Spending Increases</h3>
+                    <h3 className="text-md font-medium mb-2 text-red-600">📈 Top 5 Spending Increases</h3>
                     {increases.length > 0 ? (
-                      <div className="space-y-3">
+                      <div className="space-y-2">
                         {increases.map((item, index) => (
-                          <div key={item.category} className="border-l-4 border-red-500 pl-3 py-2 bg-red-50">
+                          <div key={item.category} className="border-l-4 border-red-500 pl-2 py-1 bg-red-50">
                             <div className="flex justify-between items-start">
-                              <span className="font-semibold text-gray-800">{index + 1}. {item.category}</span>
-                              <span className="text-red-600 font-bold">
+                              <span className="font-semibold text-sm text-gray-800">{index + 1}. {item.category}</span>
+                              <span className="text-red-600 font-bold text-sm">
                                 +{formatCurrency(item.absoluteChange)} CHF
                               </span>
                             </div>
-                            <div className="text-sm text-gray-600 mt-1">
+                            <div className="text-xs text-gray-600 mt-0.5">
                               {comparisonYear1}: {formatCurrency(item.year1Amount)} CHF → {comparisonYear2}: {formatCurrency(item.year2Amount)} CHF
                             </div>
-                            <div className="text-sm font-medium text-red-700 mt-1">
+                            <div className="text-xs font-medium text-red-700 mt-0.5">
                               +{item.percentChange.toFixed(1)}%
                             </div>
                           </div>
@@ -2346,23 +2346,23 @@ const ExpenseTracker = () => {
                     )}
                   </div>
 
-                  {/* Top 3 Decreases */}
+                  {/* Top 5 Decreases */}
                   <div>
-                    <h3 className="text-md font-medium mb-3 text-green-600">📉 Top 3 Spending Decreases</h3>
+                    <h3 className="text-md font-medium mb-2 text-green-600">📉 Top 5 Spending Decreases</h3>
                     {decreases.length > 0 ? (
-                      <div className="space-y-3">
+                      <div className="space-y-2">
                         {decreases.map((item, index) => (
-                          <div key={item.category} className="border-l-4 border-green-500 pl-3 py-2 bg-green-50">
+                          <div key={item.category} className="border-l-4 border-green-500 pl-2 py-1 bg-green-50">
                             <div className="flex justify-between items-start">
-                              <span className="font-semibold text-gray-800">{index + 1}. {item.category}</span>
-                              <span className="text-green-600 font-bold">
+                              <span className="font-semibold text-sm text-gray-800">{index + 1}. {item.category}</span>
+                              <span className="text-green-600 font-bold text-sm">
                                 {formatCurrency(item.absoluteChange)} CHF
                               </span>
                             </div>
-                            <div className="text-sm text-gray-600 mt-1">
+                            <div className="text-xs text-gray-600 mt-0.5">
                               {comparisonYear1}: {formatCurrency(item.year1Amount)} CHF → {comparisonYear2}: {formatCurrency(item.year2Amount)} CHF
                             </div>
-                            <div className="text-sm font-medium text-green-700 mt-1">
+                            <div className="text-xs font-medium text-green-700 mt-0.5">
                               {item.percentChange.toFixed(1)}%
                             </div>
                           </div>
