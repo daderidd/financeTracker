@@ -38,6 +38,7 @@ const ExpenseTracker = () => {
   // Year-over-year comparison state
   const [comparisonYear1, setComparisonYear1] = useState('');
   const [comparisonYear2, setComparisonYear2] = useState('');
+  const [comparisonLevel, setComparisonLevel] = useState('category'); // 'category' or 'subcategory'
 
 
   // NEW FUNCTION: Calculate totals for the selected period
@@ -1881,12 +1882,12 @@ const ExpenseTracker = () => {
     return Array.from(years).sort((a, b) => b - a); // Most recent first
   };
 
-  // Calculate year-over-year category changes
+  // Calculate year-over-year category/subcategory changes
   const getYearOverYearComparison = () => {
     if (!comparisonYear1 || !comparisonYear2) return null;
 
-    // Get spending by category for each year
-    const getYearCategorySpending = (year) => {
+    // Get spending by category or subcategory for each year
+    const getYearSpending = (year) => {
       const yearTransactions = transactions.filter(t =>
         t.date &&
         t.date.startsWith(year) &&
@@ -1894,30 +1895,40 @@ const ExpenseTracker = () => {
         (!hideFromCharts || !t.hidden)
       );
 
-      const categorySpending = {};
+      const spending = {};
       yearTransactions.forEach(transaction => {
-        const categoryName = transaction.category?.name || 'Miscellaneous';
-        categorySpending[categoryName] = (categorySpending[categoryName] || 0) + Math.abs(transaction.value);
+        let key;
+        if (comparisonLevel === 'subcategory') {
+          // Group by "Category > Subcategory"
+          const categoryName = transaction.category?.name || 'Miscellaneous';
+          const subcategoryName = transaction.category?.sub || 'Other';
+          key = `${categoryName} > ${subcategoryName}`;
+        } else {
+          // Group by category only
+          key = transaction.category?.name || 'Miscellaneous';
+        }
+
+        spending[key] = (spending[key] || 0) + Math.abs(transaction.value);
       });
 
-      return categorySpending;
+      return spending;
     };
 
-    const year1Spending = getYearCategorySpending(comparisonYear1);
-    const year2Spending = getYearCategorySpending(comparisonYear2);
+    const year1Spending = getYearSpending(comparisonYear1);
+    const year2Spending = getYearSpending(comparisonYear2);
 
-    // Calculate changes for all categories
-    const allCategories = new Set([...Object.keys(year1Spending), ...Object.keys(year2Spending)]);
+    // Calculate changes for all items
+    const allItems = new Set([...Object.keys(year1Spending), ...Object.keys(year2Spending)]);
     const changes = [];
 
-    allCategories.forEach(category => {
-      const amount1 = year1Spending[category] || 0;
-      const amount2 = year2Spending[category] || 0;
+    allItems.forEach(item => {
+      const amount1 = year1Spending[item] || 0;
+      const amount2 = year2Spending[item] || 0;
       const absoluteChange = amount2 - amount1;
       const percentChange = amount1 > 0 ? ((amount2 - amount1) / amount1) * 100 : (amount2 > 0 ? 100 : 0);
 
       changes.push({
-        category,
+        category: item, // This will be either "Category" or "Category > Subcategory"
         year1Amount: amount1,
         year2Amount: amount2,
         absoluteChange,
@@ -2274,8 +2285,8 @@ const ExpenseTracker = () => {
           <div className="mb-6 p-4 bg-white rounded shadow">
             <h2 className="text-lg font-semibold mb-4">Year-over-Year Category Comparison</h2>
 
-            {/* Year Selection */}
-            <div className="flex gap-4 mb-4">
+            {/* Year Selection and Level Toggle */}
+            <div className="flex flex-wrap gap-4 mb-4 items-end">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Compare Year:</label>
                 <select
@@ -2301,6 +2312,31 @@ const ExpenseTracker = () => {
                     <option key={year} value={year}>{year}</option>
                   ))}
                 </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">View By:</label>
+                <div className="flex gap-4">
+                  <label className="inline-flex items-center">
+                    <input
+                      type="radio"
+                      value="category"
+                      checked={comparisonLevel === 'category'}
+                      onChange={(e) => setComparisonLevel(e.target.value)}
+                      className="form-radio h-4 w-4 text-blue-600"
+                    />
+                    <span className="ml-2 text-sm text-gray-700">Category</span>
+                  </label>
+                  <label className="inline-flex items-center">
+                    <input
+                      type="radio"
+                      value="subcategory"
+                      checked={comparisonLevel === 'subcategory'}
+                      onChange={(e) => setComparisonLevel(e.target.value)}
+                      className="form-radio h-4 w-4 text-blue-600"
+                    />
+                    <span className="ml-2 text-sm text-gray-700">Subcategory</span>
+                  </label>
+                </div>
               </div>
             </div>
 
