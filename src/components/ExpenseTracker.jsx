@@ -1780,13 +1780,91 @@ const ExpenseTracker = () => {
   // Get subcategory data for the selected category
   const getSubcategoryData = () => {
     if (!activeCategory) return [];
-    
+
     const categoryData = getCategoryData();
     const category = categoryData.find(c => c.name === activeCategory);
-    
+
     return category ? category.subcategories.sort((a, b) => b.value - a.value) : [];
   };
-  
+
+  // Get monthly spending by category with 3-month rolling average (CHF/day)
+  const getMonthlyCategoryData = () => {
+    const filteredTransactions = getFilteredTransactions(!hideFromCharts);
+    const monthlyByCategory = {};
+
+    // Group transactions by month and category (expenses only)
+    filteredTransactions.forEach(transaction => {
+      if (!transaction.date || transaction.type !== 'expense') return;
+
+      const yearMonth = transaction.date.substring(0, 7); // YYYY-MM
+      const categoryName = transaction.category?.name || 'Miscellaneous';
+
+      if (!monthlyByCategory[yearMonth]) {
+        monthlyByCategory[yearMonth] = {};
+      }
+
+      if (!monthlyByCategory[yearMonth][categoryName]) {
+        monthlyByCategory[yearMonth][categoryName] = 0;
+      }
+
+      monthlyByCategory[yearMonth][categoryName] += Math.abs(transaction.value);
+    });
+
+    // Get all unique categories
+    const allCategories = new Set();
+    Object.values(monthlyByCategory).forEach(monthData => {
+      Object.keys(monthData).forEach(cat => allCategories.add(cat));
+    });
+
+    // Sort months chronologically
+    const sortedMonths = Object.keys(monthlyByCategory).sort();
+
+    // Helper to get days in month
+    const getDaysInMonth = (yearMonth) => {
+      const [year, month] = yearMonth.split('-').map(Number);
+      return new Date(year, month, 0).getDate();
+    };
+
+    // Calculate CHF per day for each month/category
+    const dailyData = sortedMonths.map(yearMonth => {
+      const daysInMonth = getDaysInMonth(yearMonth);
+      const result = { month: yearMonth };
+
+      allCategories.forEach(category => {
+        const totalAmount = monthlyByCategory[yearMonth][category] || 0;
+        result[category] = totalAmount / daysInMonth;
+      });
+
+      return result;
+    });
+
+    // Apply 3-month rolling average
+    const smoothedData = dailyData.map((current, index) => {
+      const result = { month: current.month };
+
+      allCategories.forEach(category => {
+        let sum = 0;
+        let count = 0;
+
+        // Include current month and up to 2 previous months
+        for (let i = Math.max(0, index - 2); i <= index; i++) {
+          sum += dailyData[i][category] || 0;
+          count++;
+        }
+
+        result[category] = parseFloat((sum / count).toFixed(2));
+      });
+
+      return result;
+    });
+
+    // Format for display
+    return smoothedData.map(month => ({
+      ...month,
+      month: formatMonth(month.month)
+    }));
+  };
+
   // Apply a subcategory filter when clicking on a subcategory in the pie chart
   const handleSubcategoryClick = (subcategory) => {
     setSubcategoryFilter(subcategory.name);
@@ -2402,6 +2480,40 @@ const ExpenseTracker = () => {
               This chart shows the daily average spending for each category over a rolling {rollingMeanDays}-day period.
             </div>
           </div>
+
+          {/* Monthly Category Breakdown - Stacked Bar Chart */}
+          <div className="p-4 bg-white rounded shadow">
+            <h2 className="text-lg font-semibold mb-4">Monthly Spending by Category (CHF/day, 3-month rolling average)</h2>
+            <div className="h-96">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={getMonthlyCategoryData()}
+                  margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="month" />
+                  <YAxis label={{ value: 'CHF / day', angle: -90, position: 'insideLeft' }} />
+                  <Tooltip
+                    formatter={(value) => `${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} CHF/day`}
+                    contentStyle={{ backgroundColor: 'rgba(255, 255, 255, 0.95)' }}
+                  />
+                  <Legend />
+                  {getCategoryData().map((category, index) => (
+                    <Bar
+                      key={category.name}
+                      dataKey={category.name}
+                      stackId="a"
+                      fill={COLORS[index % COLORS.length]}
+                    />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="mt-2 text-sm text-gray-500 text-center">
+              Smoothed spending per day by category. Each bar shows the 3-month rolling average to reduce monthly volatility.
+            </div>
+          </div>
+
           {/* Transactions Table - remains the same */}
           <div className="mt-6 p-4 bg-white rounded shadow">
             <div className="flex justify-between items-center mb-4">
