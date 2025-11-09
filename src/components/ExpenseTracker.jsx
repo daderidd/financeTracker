@@ -34,7 +34,11 @@ const ExpenseTracker = () => {
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newSubcategoryName, setNewSubcategoryName] = useState('');
-  
+
+  // Year-over-year comparison state
+  const [comparisonYear1, setComparisonYear1] = useState('');
+  const [comparisonYear2, setComparisonYear2] = useState('');
+
 
   // NEW FUNCTION: Calculate totals for the selected period
   const getTotals = () => {
@@ -1865,6 +1869,72 @@ const ExpenseTracker = () => {
     }));
   };
 
+  // Get all unique years from transactions
+  const getAvailableYears = () => {
+    const years = new Set();
+    transactions.forEach(transaction => {
+      if (transaction.date) {
+        const year = transaction.date.substring(0, 4);
+        years.add(year);
+      }
+    });
+    return Array.from(years).sort((a, b) => b - a); // Most recent first
+  };
+
+  // Calculate year-over-year category changes
+  const getYearOverYearComparison = () => {
+    if (!comparisonYear1 || !comparisonYear2) return null;
+
+    // Get spending by category for each year
+    const getYearCategorySpending = (year) => {
+      const yearTransactions = transactions.filter(t =>
+        t.date &&
+        t.date.startsWith(year) &&
+        t.type === 'expense' &&
+        (!hideFromCharts || !t.hidden)
+      );
+
+      const categorySpending = {};
+      yearTransactions.forEach(transaction => {
+        const categoryName = transaction.category?.name || 'Miscellaneous';
+        categorySpending[categoryName] = (categorySpending[categoryName] || 0) + Math.abs(transaction.value);
+      });
+
+      return categorySpending;
+    };
+
+    const year1Spending = getYearCategorySpending(comparisonYear1);
+    const year2Spending = getYearCategorySpending(comparisonYear2);
+
+    // Calculate changes for all categories
+    const allCategories = new Set([...Object.keys(year1Spending), ...Object.keys(year2Spending)]);
+    const changes = [];
+
+    allCategories.forEach(category => {
+      const amount1 = year1Spending[category] || 0;
+      const amount2 = year2Spending[category] || 0;
+      const absoluteChange = amount2 - amount1;
+      const percentChange = amount1 > 0 ? ((amount2 - amount1) / amount1) * 100 : (amount2 > 0 ? 100 : 0);
+
+      changes.push({
+        category,
+        year1Amount: amount1,
+        year2Amount: amount2,
+        absoluteChange,
+        percentChange
+      });
+    });
+
+    // Sort by absolute change
+    changes.sort((a, b) => Math.abs(b.absoluteChange) - Math.abs(a.absoluteChange));
+
+    // Get top 3 increases and decreases
+    const increases = changes.filter(c => c.absoluteChange > 0).slice(0, 3);
+    const decreases = changes.filter(c => c.absoluteChange < 0).slice(0, 3);
+
+    return { increases, decreases };
+  };
+
   // Apply a subcategory filter when clicking on a subcategory in the pie chart
   const handleSubcategoryClick = (subcategory) => {
     setSubcategoryFilter(subcategory.name);
@@ -2199,7 +2269,114 @@ const ExpenseTracker = () => {
               </div>
             </div>
           </div>
-          
+
+          {/* Year-over-Year Comparison KPI */}
+          <div className="mb-6 p-4 bg-white rounded shadow">
+            <h2 className="text-lg font-semibold mb-4">Year-over-Year Category Comparison</h2>
+
+            {/* Year Selection */}
+            <div className="flex gap-4 mb-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Compare Year:</label>
+                <select
+                  value={comparisonYear1}
+                  onChange={(e) => setComparisonYear1(e.target.value)}
+                  className="border rounded px-3 py-2"
+                >
+                  <option value="">Select Year</option>
+                  {getAvailableYears().map(year => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">To Year:</label>
+                <select
+                  value={comparisonYear2}
+                  onChange={(e) => setComparisonYear2(e.target.value)}
+                  className="border rounded px-3 py-2"
+                >
+                  <option value="">Select Year</option>
+                  {getAvailableYears().map(year => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* KPI Display */}
+            {(() => {
+              const comparison = getYearOverYearComparison();
+              if (!comparison) {
+                return (
+                  <div className="text-gray-500 text-center py-8">
+                    Select two years to compare spending by category
+                  </div>
+                );
+              }
+
+              const { increases, decreases } = comparison;
+
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Top 3 Increases */}
+                  <div>
+                    <h3 className="text-md font-medium mb-3 text-red-600">📈 Top 3 Spending Increases</h3>
+                    {increases.length > 0 ? (
+                      <div className="space-y-3">
+                        {increases.map((item, index) => (
+                          <div key={item.category} className="border-l-4 border-red-500 pl-3 py-2 bg-red-50">
+                            <div className="flex justify-between items-start">
+                              <span className="font-semibold text-gray-800">{index + 1}. {item.category}</span>
+                              <span className="text-red-600 font-bold">
+                                +{formatCurrency(item.absoluteChange)} CHF
+                              </span>
+                            </div>
+                            <div className="text-sm text-gray-600 mt-1">
+                              {comparisonYear1}: {formatCurrency(item.year1Amount)} CHF → {comparisonYear2}: {formatCurrency(item.year2Amount)} CHF
+                            </div>
+                            <div className="text-sm font-medium text-red-700 mt-1">
+                              +{item.percentChange.toFixed(1)}%
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-gray-500 text-sm">No increases found</div>
+                    )}
+                  </div>
+
+                  {/* Top 3 Decreases */}
+                  <div>
+                    <h3 className="text-md font-medium mb-3 text-green-600">📉 Top 3 Spending Decreases</h3>
+                    {decreases.length > 0 ? (
+                      <div className="space-y-3">
+                        {decreases.map((item, index) => (
+                          <div key={item.category} className="border-l-4 border-green-500 pl-3 py-2 bg-green-50">
+                            <div className="flex justify-between items-start">
+                              <span className="font-semibold text-gray-800">{index + 1}. {item.category}</span>
+                              <span className="text-green-600 font-bold">
+                                {formatCurrency(item.absoluteChange)} CHF
+                              </span>
+                            </div>
+                            <div className="text-sm text-gray-600 mt-1">
+                              {comparisonYear1}: {formatCurrency(item.year1Amount)} CHF → {comparisonYear2}: {formatCurrency(item.year2Amount)} CHF
+                            </div>
+                            <div className="text-sm font-medium text-green-700 mt-1">
+                              {item.percentChange.toFixed(1)}%
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-gray-500 text-sm">No decreases found</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
           {/* MODIFIED: Categories Section with totals */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="p-4 bg-white rounded shadow">
