@@ -106,34 +106,65 @@ const ExpenseTracker = () => {
     }
   };
 
+  // Function to normalize description for comparison (extract core payee info)
+  const normalizeDescription = (description) => {
+    if (!description) return '';
+
+    // Take first 50 chars and normalize:
+    // - Remove punctuation/separators that vary between exports (;,-)
+    // - Collapse multiple spaces
+    // - Convert to lowercase
+    const normalized = description
+      .toLowerCase()
+      .substring(0, 50)
+      .replace(/[;,\-]+/g, ' ')  // Replace separators with space
+      .replace(/\s+/g, ' ')      // Collapse multiple spaces
+      .trim();
+
+    return normalized;
+  };
+
   // Function to create a unique key for duplicate detection
   const createTransactionKey = (transaction) => {
-    // Create a unique key based on: date, amount, recipient, sender
-    // NOTE: Description is intentionally excluded because bank exports can have
-    // varying levels of detail (truncated vs full), causing false negatives
+    // Create a unique key based on: date, amount, and normalized description start
+    // We use description start because recipient/sender extraction can vary between exports
+    // (one export might extract "EURL ANGELIQUE" while another extracts differently)
     const date = transaction.date || '';
     const amount = transaction.amount || 0;
-    const recipient = (transaction.recipient || '').toLowerCase().trim();
-    const sender = (transaction.sender || '').toLowerCase().trim();
+    const descNormalized = normalizeDescription(transaction.description);
 
-    return `${date}|${amount}|${recipient}|${sender}`;
+    const key = `${date}|${amount}|${descNormalized}`;
+
+    // Debug logging to help diagnose duplicate detection
+    // console.log('Transaction key:', key);
+
+    return key;
   };
 
   // Function to merge multiple transaction arrays, removing duplicates
   const mergeTransactions = (transactionArrays) => {
     const seenKeys = new Map(); // Map of key -> transaction (keeps oldest)
+    let duplicateCount = 0;
 
     // Process each array in order (first arrays have priority)
-    for (const transactions of transactionArrays) {
+    for (let i = 0; i < transactionArrays.length; i++) {
+      const transactions = transactionArrays[i];
+      console.log(`Processing file ${i + 1}, ${transactions.length} transactions`);
+
       for (const transaction of transactions) {
         const key = createTransactionKey(transaction);
 
         // Only add if we haven't seen this transaction before
         if (!seenKeys.has(key)) {
           seenKeys.set(key, transaction);
+        } else {
+          duplicateCount++;
+          console.log(`Duplicate found: ${transaction.date} - ${transaction.description.substring(0, 50)}...`);
         }
       }
     }
+
+    console.log(`Total duplicates removed: ${duplicateCount}`);
 
     // Return merged array, sorted by date
     const merged = Array.from(seenKeys.values());
