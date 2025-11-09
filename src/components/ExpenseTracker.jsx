@@ -446,86 +446,71 @@ const ExpenseTracker = () => {
 
   // Function to parse account transactions
   const parseAccountTransactions = async (file) => {
-    // Same as original
     try {
       console.log("Starting to parse account transactions");
       const text = await readFileAsText(file);
       console.log("File read successfully, content length:", text.length);
-      
-      // Split into lines
-      const lines = text.split('\n');
-      console.log("Total lines in file:", lines.length);
-      
-      // The file format has been improved - header is now at the beginning
-      const headerLine = lines[0];
-      console.log("Header line:", headerLine);
-      
-      // Split the header into fields
-      const headers = headerLine.split(';');
-      const cleanHeaders = headers.map(h => h.trim().replace(/^"/, '').replace(/"$/, ''));
-      console.log("Headers:", cleanHeaders);
-      
-      // Parse all data lines (excluding the header)
+
+      // Parse with PapaParse to properly handle quoted fields with semicolons
+      const parsed = Papa.parse(text, {
+        delimiter: ';',
+        header: true,
+        skipEmptyLines: true,
+        quoteChar: '"',
+        escapeChar: '"'
+      });
+
+      console.log("PapaParse completed, rows:", parsed.data.length);
+
+      // Process all parsed rows
       const transactions = [];
-      for (let i = 1; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue; // Skip empty lines
-        
-        const values = line.split(';');
-        if (values.length < 5) continue; // Skip lines with too few fields
-        
-        // Create transaction object
-        const transaction = {};
-        
-        // Assign values to corresponding headers
-        cleanHeaders.forEach((header, index) => {
-          if (index < values.length && header) {
-            transaction[header] = values[index].replace(/^"/, '').replace(/"$/, '');
-          }
-        });
-        
+      for (const transaction of parsed.data) {
         // Process date fields - use the Date de transaction field
         const dateField = "Date de transaction";
         let date = transaction[dateField] || '';
-        
+
         // Skip entries without a valid date
         if (!date || !date.match(/^\d{4}-\d{2}-\d{2}$/)) {
           continue;
         }
-        
-        // Process amount fields
+
+        // Process amount fields - PapaParse handles the Débit/Crédit column names with accents
         let type = 'unknown';
         let value = 0;
         let amount = 0;
-        
-        if (transaction.Debit && transaction.Debit.trim()) {
+
+        // Try both with and without accent for Débit/Crédit
+        const debitValue = transaction.Débit || transaction.Debit || '';
+        const creditValue = transaction.Crédit || transaction.Credit || '';
+
+        if (debitValue && debitValue.trim()) {
           type = 'expense';
           // Handle various number formats in European style (comma as decimal separator)
-          const debitStr = transaction.Debit.replace(/\s/g, '').replace(',', '.');
+          const debitStr = debitValue.replace(/\s/g, '').replace(',', '.');
           value = -parseFloat(debitStr);
           amount = Math.abs(value);
-        } else if (transaction.Credit && transaction.Credit.trim()) {
+        } else if (creditValue && creditValue.trim()) {
           type = 'income';
           // Handle various number formats in European style (comma as decimal separator)
-          const creditStr = transaction.Credit.replace(/\s/g, '').replace(',', '.');
+          const creditStr = creditValue.replace(/\s/g, '').replace(',', '.');
           value = parseFloat(creditStr);
           amount = value;
         }
-        
+
         if (isNaN(value) || value === 0) {
           // Skip transactions with invalid or zero amounts
           continue;
         }
-        
+
         // Process description fields
         const desc1 = transaction.Description1 || '';
         const desc2 = transaction.Description2 || '';
         const desc3 = transaction.Description3 || '';
-        
+
         // Extract recipient or sender information
         let recipient = null;
         let sender = null;
-        
+
         if (type === 'expense') {
           // For expenses, Description1 often contains the recipient
           recipient = extractName(desc1);
@@ -533,16 +518,17 @@ const ExpenseTracker = () => {
           // For income, Description1 often contains the sender
           sender = extractName(desc1);
         }
-        
+
         // Combine descriptions for display
         const description = [desc1, desc2, desc3]
           .filter(d => d.trim() !== '')
           .join(' - ');
-        
+
         // Create the transaction object
-        // Set hidden flag for account transactions with description = "TRANSFERT D'UN COMPTE"
-        const hidden = description.trim() === "TRANSFERT D'UN COMPTE";
-        
+        // Set hidden flag for account transactions with description = "TRANSFERT D'UN COMPTE" or containing "Paiement à une carte"
+        const hidden = description.trim() === "TRANSFERT D'UN COMPTE" ||
+                      description.includes("Paiement à une carte");
+
         transactions.push({
           id: `account-${Math.random().toString(36).substr(2, 9)}`,
           date,
@@ -552,15 +538,15 @@ const ExpenseTracker = () => {
           type,
           recipient,
           sender,
-          category: mapToCategory({ 
+          category: mapToCategory({
             "Texte comptable": description,
-            "Secteur": "" 
+            "Secteur": ""
           }),
           source: 'account',
           hidden // Add hidden flag
         });
       }
-      
+
       console.log(`Successfully parsed ${transactions.length} account transactions`);
       return transactions;
     } catch (error) {
