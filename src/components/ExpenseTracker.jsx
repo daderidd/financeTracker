@@ -357,21 +357,41 @@ const ExpenseTracker = () => {
   // Function to parse card transactions
   const parseCardTransactions = async (file) => {
     try {
-      const text = await readFileAsText(file);
-      
-      // Skip the first line (sep=;) and start from the headers
+      let text = await readFileAsText(file);
+
+      // Remove UTF-8 BOM if present (EF BB BF)
+      if (text.charCodeAt(0) === 0xFEFF) {
+        text = text.slice(1);
+      }
+
+      // Detect delimiter: check if first line contains 'sep=' directive or use auto-detection
       const lines = text.split('\n');
-      const headerLine = lines[1];
-      const dataLines = lines.slice(2).filter(line => line.trim() !== '');
-      
-      // Reconstruct the CSV content with headers
-      const csvContent = [headerLine, ...dataLines].join('\n');
-      
+      let delimiter = ','; // Default to comma for raw bank exports
+      let startLine = 0;
+
+      // Check if first line is a separator directive (sep=;)
+      if (lines[0] && lines[0].trim().startsWith('sep=')) {
+        delimiter = lines[0].trim().substring(4);
+        startLine = 1; // Skip the sep= line
+        console.log(`Found delimiter directive: ${delimiter}`);
+      } else {
+        // Auto-detect delimiter from first line
+        if (lines[0] && lines[0].includes(';')) {
+          delimiter = ';';
+        }
+        console.log(`Using auto-detected delimiter: ${delimiter}`);
+      }
+
+      // Reconstruct CSV starting from the header
+      const csvContent = lines.slice(startLine).join('\n');
+
       // Parse with PapaParse
       const parsed = Papa.parse(csvContent, {
-        delimiter: ';',
+        delimiter: delimiter,
         header: true,
-        skipEmptyLines: true
+        skipEmptyLines: true,
+        quoteChar: '"',
+        escapeChar: '"'
       });
       
       return parsed.data.map(transaction => {
@@ -393,16 +413,20 @@ const ExpenseTracker = () => {
         let type = 'expense';
         let value = 0;
         let amountInCHF = 0;
-        
-        if (transaction.Debit && transaction.Debit.trim()) {
+
+        // Try both with and without accents for Débit/Crédit columns
+        const debitValue = transaction.Débit || transaction.Debit || '';
+        const creditValue = transaction.Crédit || transaction.Credit || '';
+
+        if (debitValue && debitValue.trim()) {
           // Use Débit column for expenses (in CHF)
           type = 'expense';
-          amountInCHF = parseFloat(transaction.Debit.replace(',', '.'));
+          amountInCHF = parseFloat(debitValue.replace(',', '.'));
           value = -amountInCHF;
-        } else if (transaction.Credit && transaction.Credit.trim()) {
+        } else if (creditValue && creditValue.trim()) {
           // Use Crédit column for income (in CHF)
           type = 'income';
-          amountInCHF = parseFloat(transaction.Credit.replace(',', '.'));
+          amountInCHF = parseFloat(creditValue.replace(',', '.'));
           value = amountInCHF;
         } else {
           // If no Débit/Crédit values, use the original amount
@@ -448,11 +472,37 @@ const ExpenseTracker = () => {
   const parseAccountTransactions = async (file) => {
     try {
       console.log("Starting to parse account transactions");
-      const text = await readFileAsText(file);
+      let text = await readFileAsText(file);
       console.log("File read successfully, content length:", text.length);
 
+      // Remove UTF-8 BOM if present (EF BB BF)
+      if (text.charCodeAt(0) === 0xFEFF) {
+        text = text.slice(1);
+        console.log("Removed UTF-8 BOM from file");
+      }
+
+      // Split into lines to find the header
+      const lines = text.split('\n');
+
+      // Find the header line (starts with "Date de transaction")
+      let headerIndex = -1;
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].startsWith('Date de transaction')) {
+          headerIndex = i;
+          console.log(`Found header at line ${i + 1}`);
+          break;
+        }
+      }
+
+      if (headerIndex === -1) {
+        throw new Error('Could not find header line starting with "Date de transaction"');
+      }
+
+      // Reconstruct CSV starting from the header line
+      const csvText = lines.slice(headerIndex).join('\n');
+
       // Parse with PapaParse to properly handle quoted fields with semicolons
-      const parsed = Papa.parse(text, {
+      const parsed = Papa.parse(csvText, {
         delimiter: ';',
         header: true,
         skipEmptyLines: true,
@@ -581,19 +631,21 @@ const ExpenseTracker = () => {
 
   // Helper function to read file as text
   const readFileAsText = (file) => {
-    // Same as original
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      
+
       reader.onload = (event) => {
         resolve(event.target.result);
       };
-      
+
       reader.onerror = (error) => {
         reject(error);
       };
-      
-      reader.readAsText(file, file.name.endsWith('card_transactions.csv') ? 'windows-1252' : 'utf-8');
+
+      // Detect encoding based on filename
+      const encoding = file.name.includes('card_transactions') ? 'windows-1252' : 'utf-8';
+      console.log(`Reading file "${file.name}" with encoding: ${encoding}`);
+      reader.readAsText(file, encoding);
     });
   };
 
