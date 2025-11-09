@@ -106,74 +106,131 @@ const ExpenseTracker = () => {
     }
   };
 
+  // Function to create a unique key for duplicate detection
+  const createTransactionKey = (transaction) => {
+    // Create a unique key based on: date, amount, recipient, sender, description
+    const date = transaction.date || '';
+    const amount = transaction.amount || 0;
+    const recipient = transaction.recipient || '';
+    const sender = transaction.sender || '';
+    const description = transaction.description || '';
+
+    return `${date}|${amount}|${recipient}|${sender}|${description}`;
+  };
+
+  // Function to merge multiple transaction arrays, removing duplicates
+  const mergeTransactions = (transactionArrays) => {
+    const seenKeys = new Map(); // Map of key -> transaction (keeps oldest)
+
+    // Process each array in order (first arrays have priority)
+    for (const transactions of transactionArrays) {
+      for (const transaction of transactions) {
+        const key = createTransactionKey(transaction);
+
+        // Only add if we haven't seen this transaction before
+        if (!seenKeys.has(key)) {
+          seenKeys.set(key, transaction);
+        }
+      }
+    }
+
+    // Return merged array, sorted by date
+    const merged = Array.from(seenKeys.values());
+    merged.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    return merged;
+  };
+
   // Function to load transactions from a saved file
   const loadTransactionsFromFile = (file) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      
+
       reader.onload = (event) => {
         try {
           const loadedTransactions = JSON.parse(event.target.result);
-          
+
           // Validate the loaded data
           if (!Array.isArray(loadedTransactions)) {
             reject(new Error('Invalid data format: expected an array of transactions'));
             return;
           }
-          
+
           // For saved datasets, we're more lenient with validation
           // as we assume the data was previously valid when saved
           // Just check for basic structure
           const isValid = loadedTransactions.every(transaction => {
             return typeof transaction === 'object' && transaction !== null;
           });
-          
+
           if (!isValid) {
             reject(new Error('Invalid transaction data: some transactions have invalid format'));
             return;
           }
-          
-          // Set the transactions in state
-          setTransactions(loadedTransactions);
-          
-          // Update date range based on loaded transactions
-          if (loadedTransactions.length > 0) {
-            const dates = loadedTransactions
-              .filter(t => t.date)
-              .map(t => t.date)
-              .sort();
-            
-            if (dates.length > 0) {
-              setStartDate(dates[0]);
-              setEndDate(dates[dates.length - 1]);
-            }
-          }
-          
-          resolve(loadedTransactions.length);
+
+          resolve(loadedTransactions);
         } catch (error) {
           reject(new Error(`Error parsing file: ${error.message}`));
         }
       };
-      
+
       reader.onerror = () => {
         reject(new Error('Error reading file'));
       };
-      
+
       reader.readAsText(file);
     });
   };
 
-  // Function to handle file selection for loading
+  // Function to handle file selection for loading (supports multiple files)
   const handleLoadFile = async (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-    
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
     setIsLoading(true);
     setError(null);
-    
+
     try {
-      const transactionCount = await loadTransactionsFromFile(file);
-      setError(`Successfully loaded ${transactionCount} transactions`);
+      const allTransactionArrays = [];
+
+      // Load all selected files
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        console.log(`Loading file ${i + 1}/${files.length}: ${file.name}`);
+        const transactions = await loadTransactionsFromFile(file);
+        allTransactionArrays.push(transactions);
+        console.log(`Loaded ${transactions.length} transactions from ${file.name}`);
+      }
+
+      // Merge all transaction arrays, removing duplicates (keeps oldest)
+      const mergedTransactions = mergeTransactions(allTransactionArrays);
+
+      const totalLoaded = allTransactionArrays.reduce((sum, arr) => sum + arr.length, 0);
+      const duplicatesRemoved = totalLoaded - mergedTransactions.length;
+
+      console.log(`Total transactions loaded: ${totalLoaded}`);
+      console.log(`Duplicates removed: ${duplicatesRemoved}`);
+      console.log(`Final merged transactions: ${mergedTransactions.length}`);
+
+      // Set the merged transactions in state
+      setTransactions(mergedTransactions);
+
+      // Update date range based on merged transactions
+      if (mergedTransactions.length > 0) {
+        const dates = mergedTransactions
+          .filter(t => t.date)
+          .map(t => t.date)
+          .sort();
+
+        if (dates.length > 0) {
+          setStartDate(dates[0]);
+          setEndDate(dates[dates.length - 1]);
+        }
+      }
+
+      setError(
+        `Successfully loaded ${files.length} file(s): ${totalLoaded} transactions, removed ${duplicatesRemoved} duplicates, final count: ${mergedTransactions.length}`
+      );
     } catch (error) {
       setError(error.message);
     } finally {
@@ -710,8 +767,10 @@ const ExpenseTracker = () => {
       };
     }
     // Taxes
-    if (fullDescription.includes('"etat de genève",,,,,') || 
+    if (fullDescription.includes('"etat de genève",,,,,') ||
         description1.includes('"etat de genève",,,,,') ||
+        fullDescription.includes('serafe') ||
+        description1.includes('serafe') ||
         (transaction.recipient && transaction.recipient.toLowerCase().includes('"etat de genève",,,,,'))) {
       return {
         name: 'Taxes',
@@ -720,14 +779,23 @@ const ExpenseTracker = () => {
     }
 
     // Rent payments
-    if (fullDescription.includes('bordier schmidhauser') || 
+    if (fullDescription.includes('bordier schmidhauser') ||
         (fullDescription.includes('loyer') && fullDescription.includes('geneve'))) {
       return {
         name: 'Housing',
         sub: 'Rent'
       };
     }
-    
+
+    // Neon joint account transfer (common home expenses with wife)
+    if ((fullDescription.includes('ordre permanent') || fullDescription.includes('recurring payment')) &&
+        fullDescription.includes('ch12 0830 7000 6221 4931 8')) {
+      return {
+        name: 'Home',
+        sub: 'Joint Account'
+      };
+    }
+
     // Flights and airlines
     if (fullDescription.includes('qatar') || 
         fullDescription.includes('swiss air') ||
@@ -1144,9 +1212,10 @@ const ExpenseTracker = () => {
     }
     
     // Health & Wellness
-    if (fullDescription.includes('gym') || 
+    if (fullDescription.includes('gym') ||
         fullDescription.includes('fitness') ||
         fullDescription.includes('sport') ||
+        fullDescription.includes('evo switzerland') ||
         fullDescription.includes('crossfit') ||
         fullDescription.includes('yoga') ||
         fullDescription.includes('pilates') ||
@@ -1752,12 +1821,13 @@ const ExpenseTracker = () => {
                   onClick={() => document.getElementById('load-saved-dataset').click()}
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded"
                 >
-                  Load Saved Dataset
+                  Load Saved Dataset(s)
                 </button>
                 <input
                   id="load-saved-dataset"
                   type="file"
                   accept=".json"
+                  multiple
                   onChange={handleLoadFile}
                   className="hidden"
                 />
@@ -1765,6 +1835,7 @@ const ExpenseTracker = () => {
             </div>
             <p className="text-sm text-gray-600 mt-1">
               Save your current dataset with all modifications (hidden transactions, etc.) for future sessions.
+              You can load multiple JSON files at once - duplicates will be automatically removed (oldest version kept).
             </p>
           </div>
         </div>

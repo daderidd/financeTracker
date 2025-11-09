@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Background circle -->
+  <circle cx="32" cy="32" r="30" fill="#10B981" stroke="#059669" stroke-width="2"/>
+
+  <!-- CHF symbol in white -->
+  <text x="32" y="42" font-family="Arial, sans-serif" font-size="28" font-weight="bold" fill="white" text-anchor="middle">₣</text>
+
+  <!-- Small upward trending line chart -->
+  <polyline points="12,48 22,44 32,38 42,42 52,32" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+  <circle cx="12" cy="48" r="2" fill="white" opacity="0.6"/>
+  <circle cx="22" cy="44" r="2" fill="white" opacity="0.6"/>
+  <circle cx="32" cy="38" r="2" fill="white" opacity="0.6"/>
+  <circle cx="42" cy="42" r="2" fill="white" opacity="0.6"/>
+  <circle cx="52" cy="32" r="2" fill="white" opacity="0.6"/>
+</svg>
