@@ -141,9 +141,10 @@ const ExpenseTracker = () => {
     return key;
   };
 
-  // Function to merge multiple transaction arrays, removing duplicates
+  // Function to merge multiple transaction arrays, marking suspected duplicates as hidden
   const mergeTransactions = (transactionArrays) => {
-    const seenKeys = new Map(); // Map of key -> transaction (keeps oldest)
+    const seenKeys = new Map(); // Map of key -> first occurrence index
+    const allTransactions = [];
     let duplicateCount = 0;
 
     // Process each array in order (first arrays have priority)
@@ -154,23 +155,37 @@ const ExpenseTracker = () => {
       for (const transaction of transactions) {
         const key = createTransactionKey(transaction);
 
-        // Only add if we haven't seen this transaction before
+        // Check if we've seen this transaction before
         if (!seenKeys.has(key)) {
-          seenKeys.set(key, transaction);
+          // First occurrence - keep as is
+          seenKeys.set(key, allTransactions.length);
+          allTransactions.push(transaction);
         } else {
+          // Suspected duplicate - mark as hidden and add reason
           duplicateCount++;
-          console.log(`Duplicate found: ${transaction.date} - ${transaction.description.substring(0, 50)}...`);
+          const firstIndex = seenKeys.get(key);
+          const firstTransaction = allTransactions[firstIndex];
+
+          console.log(`Suspected duplicate found:`);
+          console.log(`  First:  ${firstTransaction.date} - ${firstTransaction.description.substring(0, 60)}...`);
+          console.log(`  Second: ${transaction.date} - ${transaction.description.substring(0, 60)}...`);
+
+          // Add the duplicate but mark it as hidden
+          allTransactions.push({
+            ...transaction,
+            hidden: true,
+            hiddenReason: 'suspected_duplicate'
+          });
         }
       }
     }
 
-    console.log(`Total duplicates removed: ${duplicateCount}`);
+    console.log(`Total suspected duplicates marked as hidden: ${duplicateCount}`);
 
-    // Return merged array, sorted by date
-    const merged = Array.from(seenKeys.values());
-    merged.sort((a, b) => new Date(b.date) - new Date(a.date));
+    // Sort by date (newest first)
+    allTransactions.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-    return merged;
+    return allTransactions;
   };
 
   // Function to load transactions from a saved file
@@ -234,14 +249,14 @@ const ExpenseTracker = () => {
         console.log(`Loaded ${transactions.length} transactions from ${file.name}`);
       }
 
-      // Merge all transaction arrays, removing duplicates (keeps oldest)
+      // Merge all transaction arrays, marking suspected duplicates as hidden
       const mergedTransactions = mergeTransactions(allTransactionArrays);
 
       const totalLoaded = allTransactionArrays.reduce((sum, arr) => sum + arr.length, 0);
-      const duplicatesRemoved = totalLoaded - mergedTransactions.length;
+      const suspectedDuplicates = mergedTransactions.filter(t => t.hiddenReason === 'suspected_duplicate').length;
 
       console.log(`Total transactions loaded: ${totalLoaded}`);
-      console.log(`Duplicates removed: ${duplicatesRemoved}`);
+      console.log(`Suspected duplicates marked as hidden: ${suspectedDuplicates}`);
       console.log(`Final merged transactions: ${mergedTransactions.length}`);
 
       // Set the merged transactions in state
@@ -261,7 +276,7 @@ const ExpenseTracker = () => {
       }
 
       setError(
-        `Successfully loaded ${files.length} file(s): ${totalLoaded} transactions, removed ${duplicatesRemoved} duplicates, final count: ${mergedTransactions.length}`
+        `Successfully loaded ${files.length} file(s): ${mergedTransactions.length} total transactions (${suspectedDuplicates} suspected duplicates auto-hidden - you can unhide if needed)`
       );
     } catch (error) {
       setError(error.message);
