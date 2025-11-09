@@ -108,14 +108,15 @@ const ExpenseTracker = () => {
 
   // Function to create a unique key for duplicate detection
   const createTransactionKey = (transaction) => {
-    // Create a unique key based on: date, amount, recipient, sender, description
+    // Create a unique key based on: date, amount, recipient, sender
+    // NOTE: Description is intentionally excluded because bank exports can have
+    // varying levels of detail (truncated vs full), causing false negatives
     const date = transaction.date || '';
     const amount = transaction.amount || 0;
-    const recipient = transaction.recipient || '';
-    const sender = transaction.sender || '';
-    const description = transaction.description || '';
+    const recipient = (transaction.recipient || '').toLowerCase().trim();
+    const sender = (transaction.sender || '').toLowerCase().trim();
 
-    return `${date}|${amount}|${recipient}|${sender}|${description}`;
+    return `${date}|${amount}|${recipient}|${sender}`;
   };
 
   // Function to merge multiple transaction arrays, removing duplicates
