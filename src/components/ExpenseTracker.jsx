@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTransactionFilters } from '../hooks/useTransactionFilters';
 import { parseCardTransactions, parseAccountTransactions, loadTransactionsFromFile, saveTransactionsToFile } from '../utils/csvParsing';
 import { mergeTransactions } from '../utils/transactionUtils';
+import { mapToCategoryWithCustomRules } from '../utils/categoryRules';
 import { computeTotals, computeTotalsChartData, computeMonthlyData, computeCategoryData, computeSubcategoryData, computeMonthlyCategoryData, getAllCategories, getSubcategoriesForCategory } from '../utils/dataTransformations';
 import FileUpload from './FileUpload';
 import FilterControls from './FilterControls';
@@ -10,16 +11,21 @@ import YearOverYearKPI from './YearOverYearKPI';
 import CategoryPieCharts from './CategoryPieCharts';
 import RollingMeanChart from './RollingMeanChart';
 import MonthlyCategoryBreakdown from './MonthlyCategoryBreakdown';
+import BudgetDashboard from './BudgetDashboard';
+import CategoryRulesEditor from './CategoryRulesEditor';
 import TransactionsTable from './TransactionsTable';
 
 const ExpenseTracker = () => {
   // Core data state
   const [transactions, setTransactions] = useState([]);
+  const [budgets, setBudgets] = useState({});
+  const [customRules, setCustomRules] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [chartType, setChartType] = useState('bar');
   const [activeCategory, setActiveCategory] = useState(null);
   const [visibleCategories, setVisibleCategories] = useState([]);
+  const [activeTab, setActiveTab] = useState('overview');
 
   // Filter hook
   const filters = useTransactionFilters(transactions);
@@ -106,12 +112,21 @@ const ExpenseTracker = () => {
 
     try {
       const allTransactionArrays = [];
+      let mergedBudgets = {};
+      let mergedRules = [];
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         console.log(`Loading file ${i + 1}/${files.length}: ${file.name}`);
-        const loaded = await loadTransactionsFromFile(file);
+        const { transactions: loaded, budgets: fileBudgets, customRules: fileRules } = await loadTransactionsFromFile(file);
         allTransactionArrays.push(loaded);
+        mergedBudgets = { ...mergedBudgets, ...fileBudgets };
+        if (fileRules?.length) {
+          // Deduplicate by keyword+category+subcategory
+          const existingKeys = new Set(mergedRules.map(r => `${r.keyword}|${r.category}|${r.subcategory}`));
+          const newRules = fileRules.filter(r => !existingKeys.has(`${r.keyword}|${r.category}|${r.subcategory}`));
+          mergedRules = [...mergedRules, ...newRules];
+        }
         console.log(`Loaded ${loaded.length} transactions from ${file.name}`);
       }
 
@@ -125,6 +140,8 @@ const ExpenseTracker = () => {
       console.log(`Final merged transactions: ${mergedTransactions.length}`);
 
       setTransactions(mergedTransactions);
+      setBudgets(mergedBudgets);
+      setCustomRules(mergedRules);
 
       if (mergedTransactions.length > 0) {
         const dates = mergedTransactions
@@ -150,8 +167,8 @@ const ExpenseTracker = () => {
   }, []);
 
   const handleSave = useCallback(() => {
-    saveTransactionsToFile(transactions);
-  }, [transactions]);
+    saveTransactionsToFile(transactions, budgets, customRules);
+  }, [transactions, budgets, customRules]);
 
   const toggleHidden = useCallback((id) => {
     setTransactions(prev =>
@@ -200,6 +217,20 @@ const ExpenseTracker = () => {
     setActiveCategory(null);
   }, []);
 
+  const handleReapplyRules = useCallback((rules) => {
+    setTransactions(prev => prev.map(t => {
+      // Use preserved raw fields if available, otherwise fall back to description
+      const rawFields = t._raw || {
+        "Texte comptable": t.description || '',
+        Description1: '', Description2: '', Description3: '',
+        Secteur: '',
+      };
+      // Also include combined description for custom rule matching
+      const input = { ...rawFields, description: t.description || '' };
+      return { ...t, category: mapToCategoryWithCustomRules(input, rules) };
+    }));
+  }, []);
+
   const getSubcategoriesForCategoryFn = useCallback((categoryName) => {
     return getSubcategoriesForCategory(transactions, categoryName);
   }, [transactions]);
@@ -241,55 +272,134 @@ const ExpenseTracker = () => {
             onResetFilters={handleResetFilters}
           />
 
-          <MonthlyChart
-            monthlyData={monthlyData}
-            totalsChartData={totalsChartData}
-            chartType={chartType}
-          />
+          {/* Tab navigation */}
+          <div className="mt-4 border-b border-gray-200">
+            <div role="tablist" aria-label="Dashboard sections" className="flex space-x-1">
+              {[
+                { key: 'overview', label: 'Overview' },
+                { key: 'categories', label: 'Categories' },
+                { key: 'transactions', label: `Transactions (${filteredForTable.length})` },
+                { key: 'settings', label: 'Settings' },
+              ].map((tab, i, tabs) => (
+                <button
+                  key={tab.key}
+                  role="tab"
+                  id={`tab-${tab.key}`}
+                  aria-selected={activeTab === tab.key}
+                  aria-controls={`tabpanel-${tab.key}`}
+                  tabIndex={activeTab === tab.key ? 0 : -1}
+                  onClick={() => setActiveTab(tab.key)}
+                  onKeyDown={(e) => {
+                    const keys = tabs.map(t => t.key);
+                    const idx = keys.indexOf(activeTab);
+                    let newIdx;
+                    if (e.key === 'ArrowRight') newIdx = (idx + 1) % keys.length;
+                    else if (e.key === 'ArrowLeft') newIdx = (idx - 1 + keys.length) % keys.length;
+                    else if (e.key === 'Home') newIdx = 0;
+                    else if (e.key === 'End') newIdx = keys.length - 1;
+                    else return;
+                    e.preventDefault();
+                    setActiveTab(keys[newIdx]);
+                    document.getElementById(`tab-${keys[newIdx]}`)?.focus();
+                  }}
+                  className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
+                    activeTab === tab.key
+                      ? 'bg-white text-blue-600 border border-gray-200 border-b-white -mb-px'
+                      : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
 
-          <YearOverYearKPI
-            transactions={transactions}
-            hideFromCharts={filters.hideFromCharts}
-          />
+          {/* Tab panels — use display:none to preserve state across tab switches */}
+          <div role="tabpanel" id="tabpanel-overview" aria-labelledby="tab-overview"
+               style={{ display: activeTab === 'overview' ? 'block' : 'none' }}>
+            <BudgetDashboard
+              budgets={budgets}
+              categoryData={categoryData}
+              startDate={filters.startDate}
+              endDate={filters.endDate}
+            />
 
-          <CategoryPieCharts
-            categoryData={categoryData}
-            subcategoryData={subcategoryData}
-            activeCategory={activeCategory}
-            categoryFilter={filters.categoryFilter}
-            subcategoryFilter={filters.subcategoryFilter}
-            totals={totals}
-            transactionTypeFilter={filters.transactionTypeFilter}
-            onCategoryClick={handleCategoryClick}
-            onClearFilters={handleClearCategoryFilters}
-          />
+            <MonthlyChart
+              monthlyData={monthlyData}
+              totalsChartData={totalsChartData}
+              chartType={chartType}
+            />
 
-          <RollingMeanChart
-            filteredTransactions={filteredForCharts}
-            visibleCategories={visibleCategories}
-            onToggleCategoryVisibility={toggleCategoryVisibility}
-          />
+            <YearOverYearKPI
+              transactions={transactions}
+              hideFromCharts={filters.hideFromCharts}
+            />
+          </div>
 
-          <MonthlyCategoryBreakdown
-            data={monthlyCategoryData}
-            categoryData={categoryData}
-            visibleCategories={visibleCategories}
-            onToggleCategoryVisibility={toggleCategoryVisibility}
-          />
+          <div role="tabpanel" id="tabpanel-categories" aria-labelledby="tab-categories"
+               style={{ display: activeTab === 'categories' ? 'block' : 'none' }}>
+            <CategoryPieCharts
+              categoryData={categoryData}
+              subcategoryData={subcategoryData}
+              activeCategory={activeCategory}
+              categoryFilter={filters.categoryFilter}
+              subcategoryFilter={filters.subcategoryFilter}
+              totals={totals}
+              transactionTypeFilter={filters.transactionTypeFilter}
+              onCategoryClick={handleCategoryClick}
+              onClearFilters={handleClearCategoryFilters}
+            />
 
-          <TransactionsTable
-            filteredTransactions={filteredForTable}
-            onToggleHidden={toggleHidden}
-            onHideAllFiltered={hideAllFilteredTransactions}
-            categoryFilter={filters.categoryFilter}
-            subcategoryFilter={filters.subcategoryFilter}
-            onClearCategoryFilters={handleClearCategoryFilters}
-            sortConfig={filters.sortConfig}
-            onRequestSort={filters.requestSort}
-            allCategories={allCategories}
-            getSubcategoriesForCategory={getSubcategoriesForCategoryFn}
-            onUpdateCategory={updateTransactionCategory}
-          />
+            <RollingMeanChart
+              filteredTransactions={filteredForCharts}
+              visibleCategories={visibleCategories}
+              onToggleCategoryVisibility={toggleCategoryVisibility}
+            />
+
+            <MonthlyCategoryBreakdown
+              data={monthlyCategoryData}
+              categoryData={categoryData}
+              visibleCategories={visibleCategories}
+              onToggleCategoryVisibility={toggleCategoryVisibility}
+            />
+          </div>
+
+          <div role="tabpanel" id="tabpanel-transactions" aria-labelledby="tab-transactions"
+               style={{ display: activeTab === 'transactions' ? 'block' : 'none' }}>
+            <TransactionsTable
+              filteredTransactions={filteredForTable}
+              onToggleHidden={toggleHidden}
+              onHideAllFiltered={hideAllFilteredTransactions}
+              categoryFilter={filters.categoryFilter}
+              subcategoryFilter={filters.subcategoryFilter}
+              onClearCategoryFilters={handleClearCategoryFilters}
+              sortConfig={filters.sortConfig}
+              onRequestSort={filters.requestSort}
+              allCategories={allCategories}
+              getSubcategoriesForCategory={getSubcategoriesForCategoryFn}
+              onUpdateCategory={updateTransactionCategory}
+            />
+          </div>
+
+          <div role="tabpanel" id="tabpanel-settings" aria-labelledby="tab-settings"
+               style={{ display: activeTab === 'settings' ? 'block' : 'none' }}>
+            <BudgetDashboard
+              budgets={budgets}
+              setBudgets={setBudgets}
+              categoryData={categoryData}
+              allCategories={allCategories}
+              startDate={filters.startDate}
+              endDate={filters.endDate}
+              editable
+            />
+
+            <CategoryRulesEditor
+              customRules={customRules}
+              setCustomRules={setCustomRules}
+              allCategories={allCategories}
+              onReapplyRules={handleReapplyRules}
+            />
+          </div>
         </>
       )}
     </div>

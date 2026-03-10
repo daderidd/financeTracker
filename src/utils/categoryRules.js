@@ -1,3 +1,25 @@
+// Apply custom user rules first, then fall back to hardcoded rules
+export const mapToCategoryWithCustomRules = (transaction, customRules = []) => {
+  if (customRules.length > 0) {
+    const desc = (
+      (transaction["Texte comptable"] || '') + ' ' +
+      (transaction.Description1 || '') + ' ' +
+      (transaction.Description2 || '') + ' ' +
+      (transaction.Description3 || '') + ' ' +
+      (transaction.description || '')
+    ).toLowerCase();
+
+    for (const rule of customRules) {
+      const keyword = rule.keyword.toLowerCase();
+      if (keyword && desc.includes(keyword)) {
+        return { name: rule.category, sub: rule.subcategory || '' };
+      }
+    }
+  }
+
+  return mapToCategory(transaction);
+};
+
 // Function to map transactions to categories
 export const mapToCategory = (transaction) => {
   // Get all possible description fields

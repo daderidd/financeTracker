@@ -138,7 +138,11 @@ export const parseCardTransactions = async (file) => {
         type,
         category: mapToCategory(transaction),
         source: 'card',
-        hidden
+        hidden,
+        _raw: {
+          "Texte comptable": transaction["Texte comptable"] || '',
+          Secteur: transaction.Secteur || '',
+        },
       };
     });
   } catch (error) {
@@ -266,7 +270,14 @@ export const parseAccountTransactions = async (file) => {
           "Secteur": ""
         }),
         source: 'account',
-        hidden
+        hidden,
+        _raw: {
+          "Texte comptable": description,
+          Description1: desc1,
+          Description2: desc2,
+          Description3: desc3,
+          Secteur: '',
+        },
       });
     }
 
@@ -279,29 +290,41 @@ export const parseAccountTransactions = async (file) => {
 };
 
 // Function to load transactions from a saved file
+// Returns { transactions, budgets } — supports both legacy (plain array) and v2 envelope format
 export const loadTransactionsFromFile = (file) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
 
     reader.onload = (event) => {
       try {
-        const loadedTransactions = JSON.parse(event.target.result);
+        const parsed = JSON.parse(event.target.result);
 
-        if (!Array.isArray(loadedTransactions)) {
-          reject(new Error('Invalid data format: expected an array of transactions'));
+        // Legacy format: plain array of transactions
+        if (Array.isArray(parsed)) {
+          const isValid = parsed.every(t => typeof t === 'object' && t !== null);
+          if (!isValid) {
+            reject(new Error('Invalid transaction data: some transactions have invalid format'));
+            return;
+          }
+          resolve({ transactions: parsed, budgets: {}, customRules: [] });
           return;
         }
 
-        const isValid = loadedTransactions.every(transaction => {
-          return typeof transaction === 'object' && transaction !== null;
-        });
-
-        if (!isValid) {
-          reject(new Error('Invalid transaction data: some transactions have invalid format'));
+        // V2 envelope format
+        if (parsed && typeof parsed === 'object' && Array.isArray(parsed.transactions)) {
+          const isValid = parsed.transactions.every(t => typeof t === 'object' && t !== null);
+          if (!isValid) {
+            reject(new Error('Invalid transaction data: some transactions have invalid format'));
+            return;
+          }
+          const budgets = (parsed.budgets && typeof parsed.budgets === 'object' && !Array.isArray(parsed.budgets))
+            ? parsed.budgets : {};
+          const customRules = Array.isArray(parsed.customRules) ? parsed.customRules : [];
+          resolve({ transactions: parsed.transactions, budgets, customRules });
           return;
         }
 
-        resolve(loadedTransactions);
+        reject(new Error('Invalid data format: expected an array or envelope object'));
       } catch (error) {
         reject(new Error(`Error parsing file: ${error.message}`));
       }
@@ -315,10 +338,11 @@ export const loadTransactionsFromFile = (file) => {
   });
 };
 
-// Function to save the current state of transactions to a file
-export const saveTransactionsToFile = (transactions) => {
+// Function to save the current state of transactions (and budgets) to a file
+export const saveTransactionsToFile = (transactions, budgets = {}, customRules = []) => {
   try {
-    const dataToSave = JSON.stringify(transactions, null, 2);
+    const envelope = { version: 2, transactions, budgets, customRules };
+    const dataToSave = JSON.stringify(envelope, null, 2);
     const blob = new Blob([dataToSave], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
