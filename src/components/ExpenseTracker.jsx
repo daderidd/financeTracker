@@ -5,9 +5,11 @@ import { mergeTransactions } from '../utils/transactionUtils';
 import { categorizeTransaction, buildMappingsIndex, learnFromEdit } from '../utils/categorize';
 import { computeTotals, computeTotalsChartData, computeMonthlyData, computeCategoryData, computeSubcategoryData, computeMonthlyCategoryData, getAllCategories, getSubcategoriesForCategory } from '../utils/dataTransformations';
 import { saveState, loadState } from '../utils/persistence';
+import AnomalyAlerts from './AnomalyAlerts';
 import FileUpload from './FileUpload';
 import FilterControls from './FilterControls';
 import MonthlyChart from './MonthlyChart';
+import RecurringTransactions from './RecurringTransactions';
 import YearOverYearKPI from './YearOverYearKPI';
 import CategoryPieCharts from './CategoryPieCharts';
 import RollingMeanChart from './RollingMeanChart';
@@ -16,6 +18,7 @@ import BudgetDashboard from './BudgetDashboard';
 import CategoryRulesEditor from './CategoryRulesEditor';
 import LearnedMappingsViewer from './LearnedMappingsViewer';
 import SummaryBar from './SummaryBar';
+import TopMerchants from './TopMerchants';
 import Toast from './Toast';
 import TransactionsTable from './TransactionsTable';
 
@@ -412,10 +415,14 @@ const ExpenseTracker = () => {
               chartType={chartType}
             />
 
+            <AnomalyAlerts transactions={transactions} />
+
             <YearOverYearKPI
               transactions={transactions}
               hideFromCharts={filters.hideFromCharts}
             />
+
+            <RecurringTransactions transactions={transactions} />
           </div>
 
           <div role="tabpanel" id="tabpanel-categories" aria-labelledby="tab-categories"
@@ -444,6 +451,8 @@ const ExpenseTracker = () => {
               visibleCategories={visibleCategories}
               onToggleCategoryVisibility={toggleCategoryVisibility}
             />
+
+            <TopMerchants transactions={filteredForCharts} />
           </div>
 
           <div role="tabpanel" id="tabpanel-transactions" aria-labelledby="tab-transactions"
