@@ -405,8 +405,8 @@ const ExpenseTracker = () => {
           </div>
 
           {/* Tab navigation */}
-          <div className="mt-4 border-b border-gray-200">
-            <div role="tablist" aria-label="Dashboard sections" className="flex space-x-1">
+          <div className="mt-4 border-b border-gray-200 overflow-x-auto">
+            <div role="tablist" aria-label="Dashboard sections" className="flex space-x-1 min-w-max">
               {[
                 { key: 'overview', label: 'Overview' },
                 { key: 'categories', label: 'Categories' },

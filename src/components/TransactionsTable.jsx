@@ -1,7 +1,8 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { List } from 'react-window';
 
 const ROW_HEIGHT = 52;
+const CARD_HEIGHT = 88;
 const TABLE_HEIGHT = 600;
 
 // Column width config (percentages for flex-basis)
@@ -36,6 +37,14 @@ const TransactionsTable = ({
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newSubcategoryName, setNewSubcategoryName] = useState('');
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
 
   const handleUpdateCategory = (transactionId, categoryName, subcategoryName) => {
     onUpdateCategory(transactionId, categoryName, subcategoryName);
@@ -221,7 +230,66 @@ const TransactionsTable = ({
     );
   }, [filteredTransactions, editingTransaction, isCreatingCategory, newCategoryName, newSubcategoryName, allCategories, getSubcategoriesForCategory, onToggleHidden, sortConfig]);
 
-  const listHeight = Math.min(TABLE_HEIGHT, filteredTransactions.length * ROW_HEIGHT);
+  const MobileRow = useCallback(({ index, style }) => {
+    const t = filteredTransactions[index];
+    return (
+      <div
+        style={style}
+        className={`p-3 border-b border-gray-200 ${t.type === 'expense' ? 'bg-red-50' : 'bg-green-50'} ${t.hidden ? 'opacity-60' : ''}`}
+      >
+        <div className="flex justify-between items-start">
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium truncate">{t.description}</div>
+            <div className="flex gap-2 text-xs text-gray-500 mt-0.5">
+              <span>{t.date}</span>
+              <span
+                className="text-blue-600 cursor-pointer"
+                onClick={() => setEditingTransaction(editingTransaction === t.id ? null : t.id)}
+              >
+                {t.category?.name || 'Uncategorized'}
+              </span>
+              {t.category?.sub && <span className="text-gray-400">{t.category.sub}</span>}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 ml-2">
+            <span className={`text-sm font-semibold ${t.type === 'expense' ? 'text-red-600' : 'text-green-600'}`}>
+              {t.type === 'expense' ? '-' : '+'}{t.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+            <input
+              type="checkbox"
+              checked={t.hidden}
+              onChange={() => onToggleHidden(t.id)}
+              className="form-checkbox h-4 w-4 text-blue-600"
+            />
+          </div>
+        </div>
+        {editingTransaction === t.id && (
+          <div className="flex gap-2 mt-2">
+            <select
+              value={t.category?.name || ''}
+              onChange={(e) => {
+                if (e.target.value === 'new') {
+                  setIsCreatingCategory(true);
+                } else {
+                  handleUpdateCategory(t.id, e.target.value, getSubcategoriesForCategory(e.target.value)[0] || '');
+                }
+              }}
+              className="border border-gray-300 rounded px-2 py-1 text-xs flex-1"
+              autoFocus
+            >
+              <option value="">Uncategorized</option>
+              <option value="new">+ New...</option>
+              {allCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+            </select>
+            <button onClick={() => setEditingTransaction(null)} className="px-2 py-1 bg-gray-200 rounded text-xs">Done</button>
+          </div>
+        )}
+      </div>
+    );
+  }, [filteredTransactions, editingTransaction, isCreatingCategory, allCategories, getSubcategoriesForCategory, onToggleHidden]);
+
+  const rowHeight = isMobile ? CARD_HEIGHT : ROW_HEIGHT;
+  const listHeight = Math.min(TABLE_HEIGHT, filteredTransactions.length * rowHeight);
 
   return (
     <div className="mt-6 p-4 bg-white rounded shadow">
@@ -261,45 +329,64 @@ const TransactionsTable = ({
       </div>
 
       <div className="overflow-x-auto">
-        {/* Header */}
-        <div className="flex items-center bg-gray-50 border-b border-gray-200">
-          <div className={`${headerCellClass} text-center shrink-0`} style={{ flexBasis: COL.hide }}>Hide</div>
-          <div className={`${headerCellClass} cursor-pointer hover:bg-gray-100 shrink-0`} style={{ flexBasis: COL.date }} onClick={() => onRequestSort('date')}>
-            Date<SortIndicator sortKey="date" />
+        {/* Desktop header */}
+        {!isMobile && (
+          <div className="flex items-center bg-gray-50 border-b border-gray-200">
+            <div className={`${headerCellClass} text-center shrink-0`} style={{ flexBasis: COL.hide }}>Hide</div>
+            <div className={`${headerCellClass} cursor-pointer hover:bg-gray-100 shrink-0`} style={{ flexBasis: COL.date }} onClick={() => onRequestSort('date')}>
+              Date<SortIndicator sortKey="date" />
+            </div>
+            <div className={`${headerCellClass} cursor-pointer hover:bg-gray-100 shrink-0`} style={{ flexBasis: COL.desc }} onClick={() => onRequestSort('description')}>
+              Description<SortIndicator sortKey="description" />
+            </div>
+            <div className={`${headerCellClass} cursor-pointer hover:bg-gray-100 shrink-0`} style={{ flexBasis: COL.cat }} onClick={() => onRequestSort('category')}>
+              Category<SortIndicator sortKey="category" />
+            </div>
+            <div className={`${headerCellClass} cursor-pointer hover:bg-gray-100 shrink-0`} style={{ flexBasis: COL.sub }} onClick={() => onRequestSort('subcategory')}>
+              Subcategory<SortIndicator sortKey="subcategory" />
+            </div>
+            <div className={`${headerCellClass} cursor-pointer hover:bg-gray-100 shrink-0`} style={{ flexBasis: COL.amount }} onClick={() => onRequestSort('amount')}>
+              Amount<SortIndicator sortKey="amount" />
+            </div>
+            <div className={`${headerCellClass} cursor-pointer hover:bg-gray-100 shrink-0`} style={{ flexBasis: COL.type }} onClick={() => onRequestSort('type')}>
+              Type<SortIndicator sortKey="type" />
+            </div>
+            <div className={`${headerCellClass} cursor-pointer hover:bg-gray-100 shrink-0`} style={{ flexBasis: COL.source }} onClick={() => onRequestSort('source')}>
+              Source<SortIndicator sortKey="source" />
+            </div>
+            <div className={`${headerCellClass} shrink-0`} style={{ flexBasis: COL.recipient }}>
+              Recipient/Sender
+            </div>
           </div>
-          <div className={`${headerCellClass} cursor-pointer hover:bg-gray-100 shrink-0`} style={{ flexBasis: COL.desc }} onClick={() => onRequestSort('description')}>
-            Description<SortIndicator sortKey="description" />
+        )}
+
+        {/* Mobile sort bar */}
+        {isMobile && (
+          <div className="flex items-center gap-2 py-2 border-b border-gray-200">
+            <span className="text-xs text-gray-500">Sort:</span>
+            {['date', 'amount', 'category'].map(key => (
+              <button
+                key={key}
+                onClick={() => onRequestSort(key)}
+                className={`text-xs px-2 py-1 rounded ${sortConfig.key === key ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}
+              >
+                {key.charAt(0).toUpperCase() + key.slice(1)}
+                {sortConfig.key === key && (sortConfig.direction === 'ascending' ? ' ↑' : ' ↓')}
+              </button>
+            ))}
           </div>
-          <div className={`${headerCellClass} cursor-pointer hover:bg-gray-100 shrink-0`} style={{ flexBasis: COL.cat }} onClick={() => onRequestSort('category')}>
-            Category<SortIndicator sortKey="category" />
-          </div>
-          <div className={`${headerCellClass} cursor-pointer hover:bg-gray-100 shrink-0`} style={{ flexBasis: COL.sub }} onClick={() => onRequestSort('subcategory')}>
-            Subcategory<SortIndicator sortKey="subcategory" />
-          </div>
-          <div className={`${headerCellClass} cursor-pointer hover:bg-gray-100 shrink-0`} style={{ flexBasis: COL.amount }} onClick={() => onRequestSort('amount')}>
-            Amount<SortIndicator sortKey="amount" />
-          </div>
-          <div className={`${headerCellClass} cursor-pointer hover:bg-gray-100 shrink-0`} style={{ flexBasis: COL.type }} onClick={() => onRequestSort('type')}>
-            Type<SortIndicator sortKey="type" />
-          </div>
-          <div className={`${headerCellClass} cursor-pointer hover:bg-gray-100 shrink-0`} style={{ flexBasis: COL.source }} onClick={() => onRequestSort('source')}>
-            Source<SortIndicator sortKey="source" />
-          </div>
-          <div className={`${headerCellClass} shrink-0`} style={{ flexBasis: COL.recipient }}>
-            Recipient/Sender
-          </div>
-        </div>
+        )}
 
         {/* Virtualized rows */}
         {filteredTransactions.length > 0 ? (
           <List
             height={listHeight}
             itemCount={filteredTransactions.length}
-            itemSize={ROW_HEIGHT}
+            itemSize={rowHeight}
             width="100%"
             overscanCount={10}
           >
-            {Row}
+            {isMobile ? MobileRow : Row}
           </List>
         ) : (
           <div className="text-center py-4 text-gray-500">
