@@ -306,7 +306,7 @@ export const loadTransactionsFromFile = (file) => {
             reject(new Error('Invalid transaction data: some transactions have invalid format'));
             return;
           }
-          resolve({ transactions: parsed, budgets: {}, customRules: [] });
+          resolve({ transactions: parsed, budgets: {}, customRules: [], learnedMappings: [] });
           return;
         }
 
@@ -320,7 +320,8 @@ export const loadTransactionsFromFile = (file) => {
           const budgets = (parsed.budgets && typeof parsed.budgets === 'object' && !Array.isArray(parsed.budgets))
             ? parsed.budgets : {};
           const customRules = Array.isArray(parsed.customRules) ? parsed.customRules : [];
-          resolve({ transactions: parsed.transactions, budgets, customRules });
+          const learnedMappings = Array.isArray(parsed.learnedMappings) ? parsed.learnedMappings : [];
+          resolve({ transactions: parsed.transactions, budgets, customRules, learnedMappings });
           return;
         }
 
@@ -339,9 +340,9 @@ export const loadTransactionsFromFile = (file) => {
 };
 
 // Function to save the current state of transactions (and budgets) to a file
-export const saveTransactionsToFile = (transactions, budgets = {}, customRules = []) => {
+export const saveTransactionsToFile = (transactions, budgets = {}, customRules = [], learnedMappings = []) => {
   try {
-    const envelope = { version: 2, transactions, budgets, customRules };
+    const envelope = { version: 2, transactions, budgets, customRules, learnedMappings };
     const dataToSave = JSON.stringify(envelope, null, 2);
     const blob = new Blob([dataToSave], { type: 'application/json' });
     const url = URL.createObjectURL(blob);

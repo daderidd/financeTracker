@@ -49,7 +49,7 @@ const CategoryRulesEditor = ({ customRules, setCustomRules, allCategories, onRea
   };
 
   const handleReapply = () => {
-    onReapplyRules(customRules);
+    onReapplyRules();
   };
 
   return (

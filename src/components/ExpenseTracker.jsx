@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTransactionFilters } from '../hooks/useTransactionFilters';
 import { parseCardTransactions, parseAccountTransactions, loadTransactionsFromFile, saveTransactionsToFile } from '../utils/csvParsing';
 import { mergeTransactions } from '../utils/transactionUtils';
-import { mapToCategoryWithCustomRules } from '../utils/categoryRules';
+import { categorizeTransaction, buildMappingsIndex, learnFromEdit } from '../utils/categorize';
 import { computeTotals, computeTotalsChartData, computeMonthlyData, computeCategoryData, computeSubcategoryData, computeMonthlyCategoryData, getAllCategories, getSubcategoriesForCategory } from '../utils/dataTransformations';
 import FileUpload from './FileUpload';
 import FilterControls from './FilterControls';
@@ -13,6 +13,7 @@ import RollingMeanChart from './RollingMeanChart';
 import MonthlyCategoryBreakdown from './MonthlyCategoryBreakdown';
 import BudgetDashboard from './BudgetDashboard';
 import CategoryRulesEditor from './CategoryRulesEditor';
+import LearnedMappingsViewer from './LearnedMappingsViewer';
 import TransactionsTable from './TransactionsTable';
 
 const ExpenseTracker = () => {
@@ -20,6 +21,7 @@ const ExpenseTracker = () => {
   const [transactions, setTransactions] = useState([]);
   const [budgets, setBudgets] = useState({});
   const [customRules, setCustomRules] = useState([]);
+  const [learnedMappings, setLearnedMappings] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [chartType, setChartType] = useState('bar');
@@ -58,6 +60,7 @@ const ExpenseTracker = () => {
   const subcategoryData = useMemo(() => computeSubcategoryData(categoryData, activeCategory), [categoryData, activeCategory]);
   const monthlyCategoryData = useMemo(() => computeMonthlyCategoryData(filteredForCharts), [filteredForCharts]);
   const allCategories = useMemo(() => getAllCategories(transactions), [transactions]);
+  const learnedMappingsIndex = useMemo(() => buildMappingsIndex(learnedMappings), [learnedMappings]);
 
   // Handlers
   const handleFileUpload = useCallback(async (event) => {
@@ -82,6 +85,12 @@ const ExpenseTracker = () => {
         }
       }
 
+      // Re-categorize using full chain (custom rules + learned mappings + hardcoded)
+      newTransactions = newTransactions.map(t => ({
+        ...t,
+        category: categorizeTransaction(t, customRules, learnedMappingsIndex),
+      }));
+
       newTransactions.sort((a, b) => new Date(b.date) - new Date(a.date));
       setTransactions(newTransactions);
 
@@ -101,7 +110,7 @@ const ExpenseTracker = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [customRules, learnedMappingsIndex]);
 
   const handleLoadFile = useCallback(async (event) => {
     const files = event.target.files;
@@ -114,18 +123,24 @@ const ExpenseTracker = () => {
       const allTransactionArrays = [];
       let mergedBudgets = {};
       let mergedRules = [];
+      let mergedLearnedMappings = [];
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         console.log(`Loading file ${i + 1}/${files.length}: ${file.name}`);
-        const { transactions: loaded, budgets: fileBudgets, customRules: fileRules } = await loadTransactionsFromFile(file);
+        const { transactions: loaded, budgets: fileBudgets, customRules: fileRules, learnedMappings: fileMappings } = await loadTransactionsFromFile(file);
         allTransactionArrays.push(loaded);
         mergedBudgets = { ...mergedBudgets, ...fileBudgets };
         if (fileRules?.length) {
-          // Deduplicate by keyword+category+subcategory
           const existingKeys = new Set(mergedRules.map(r => `${r.keyword}|${r.category}|${r.subcategory}`));
           const newRules = fileRules.filter(r => !existingKeys.has(`${r.keyword}|${r.category}|${r.subcategory}`));
           mergedRules = [...mergedRules, ...newRules];
+        }
+        if (fileMappings?.length) {
+          // Deduplicate by normalized description (first seen wins)
+          const existingDescs = new Set(mergedLearnedMappings.map(m => m.description));
+          const newMappings = fileMappings.filter(m => !existingDescs.has(m.description));
+          mergedLearnedMappings = [...mergedLearnedMappings, ...newMappings];
         }
         console.log(`Loaded ${loaded.length} transactions from ${file.name}`);
       }
@@ -142,6 +157,7 @@ const ExpenseTracker = () => {
       setTransactions(mergedTransactions);
       setBudgets(mergedBudgets);
       setCustomRules(mergedRules);
+      setLearnedMappings(mergedLearnedMappings);
 
       if (mergedTransactions.length > 0) {
         const dates = mergedTransactions
@@ -167,8 +183,8 @@ const ExpenseTracker = () => {
   }, []);
 
   const handleSave = useCallback(() => {
-    saveTransactionsToFile(transactions, budgets, customRules);
-  }, [transactions, budgets, customRules]);
+    saveTransactionsToFile(transactions, budgets, customRules, learnedMappings);
+  }, [transactions, budgets, customRules, learnedMappings]);
 
   const toggleHidden = useCallback((id) => {
     setTransactions(prev =>
@@ -184,6 +200,10 @@ const ExpenseTracker = () => {
   }, [filteredForTable]);
 
   const updateTransactionCategory = useCallback((transactionId, categoryName, subcategoryName) => {
+    const transaction = transactions.find(t => t.id === transactionId);
+    if (transaction) {
+      setLearnedMappings(prev => learnFromEdit(prev, transaction, categoryName, subcategoryName));
+    }
     setTransactions(prev =>
       prev.map(t =>
         t.id === transactionId
@@ -191,7 +211,7 @@ const ExpenseTracker = () => {
           : t
       )
     );
-  }, []);
+  }, [transactions]);
 
   const toggleCategoryVisibility = useCallback((category) => {
     setVisibleCategories(prev =>
@@ -217,19 +237,12 @@ const ExpenseTracker = () => {
     setActiveCategory(null);
   }, []);
 
-  const handleReapplyRules = useCallback((rules) => {
-    setTransactions(prev => prev.map(t => {
-      // Use preserved raw fields if available, otherwise fall back to description
-      const rawFields = t._raw || {
-        "Texte comptable": t.description || '',
-        Description1: '', Description2: '', Description3: '',
-        Secteur: '',
-      };
-      // Also include combined description for custom rule matching
-      const input = { ...rawFields, description: t.description || '' };
-      return { ...t, category: mapToCategoryWithCustomRules(input, rules) };
-    }));
-  }, []);
+  const handleReapplyRules = useCallback(() => {
+    setTransactions(prev => prev.map(t => ({
+      ...t,
+      category: categorizeTransaction(t, customRules, learnedMappingsIndex),
+    })));
+  }, [customRules, learnedMappingsIndex]);
 
   const getSubcategoriesForCategoryFn = useCallback((categoryName) => {
     return getSubcategoriesForCategory(transactions, categoryName);
@@ -397,6 +410,12 @@ const ExpenseTracker = () => {
               customRules={customRules}
               setCustomRules={setCustomRules}
               allCategories={allCategories}
+              onReapplyRules={handleReapplyRules}
+            />
+
+            <LearnedMappingsViewer
+              learnedMappings={learnedMappings}
+              setLearnedMappings={setLearnedMappings}
               onReapplyRules={handleReapplyRules}
             />
           </div>
