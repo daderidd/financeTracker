@@ -7,6 +7,7 @@ import { computeTotals, computeTotalsChartData, computeMonthlyData, computeCateg
 import { saveState, loadState } from '../utils/persistence';
 import AnomalyAlerts from './AnomalyAlerts';
 import CommandPalette from './CommandPalette';
+import ExportMenu from './ExportMenu';
 import FileUpload from './FileUpload';
 import FilterControls from './FilterControls';
 import MonthlyChart from './MonthlyChart';
@@ -385,14 +386,23 @@ const ExpenseTracker = () => {
             onResetFilters={handleResetFilters}
           />
 
-          <SummaryBar
-            totals={totals}
-            transactionCount={filteredForCharts.length}
-            budgets={budgets}
-            categoryData={categoryData}
-            startDate={filters.startDate}
-            endDate={filters.endDate}
-          />
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <SummaryBar
+              totals={totals}
+              transactionCount={filteredForCharts.length}
+              budgets={budgets}
+              categoryData={categoryData}
+              startDate={filters.startDate}
+              endDate={filters.endDate}
+            />
+            <ExportMenu
+              totals={totals}
+              categoryData={categoryData}
+              startDate={filters.startDate}
+              endDate={filters.endDate}
+              budgets={budgets}
+            />
+          </div>
 
           {/* Tab navigation */}
           <div className="mt-4 border-b border-gray-200">
