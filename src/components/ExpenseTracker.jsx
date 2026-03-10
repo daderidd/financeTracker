@@ -6,6 +6,7 @@ import { categorizeTransaction, buildMappingsIndex, learnFromEdit } from '../uti
 import { computeTotals, computeTotalsChartData, computeMonthlyData, computeCategoryData, computeSubcategoryData, computeMonthlyCategoryData, getAllCategories, getSubcategoriesForCategory } from '../utils/dataTransformations';
 import { saveState, loadState } from '../utils/persistence';
 import AnomalyAlerts from './AnomalyAlerts';
+import CommandPalette from './CommandPalette';
 import FileUpload from './FileUpload';
 import FilterControls from './FilterControls';
 import MonthlyChart from './MonthlyChart';
@@ -36,10 +37,40 @@ const ExpenseTracker = () => {
   const [activeTab, setActiveTab] = useState('overview');
   const [autoSaveStatus, setAutoSaveStatus] = useState(null); // 'saving' | 'saved' | 'error'
   const [toast, setToast] = useState(null);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const hasHydrated = useRef(false);
 
   // Filter hook
   const filters = useTransactionFilters(transactions);
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen(prev => !prev);
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 's' && transactions.length > 0) {
+        e.preventDefault();
+        handleSave();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [transactions.length]);
+
+  const commandActions = useMemo(() => [
+    { id: 'overview', label: 'Go to Overview', keywords: 'tab budget chart', shortcut: '', onSelect: () => setActiveTab('overview') },
+    { id: 'categories', label: 'Go to Categories', keywords: 'tab pie merchant', shortcut: '', onSelect: () => setActiveTab('categories') },
+    { id: 'transactions', label: 'Go to Transactions', keywords: 'tab table list', shortcut: '', onSelect: () => setActiveTab('transactions') },
+    { id: 'settings', label: 'Go to Settings', keywords: 'tab rules budget config', shortcut: '', onSelect: () => setActiveTab('settings') },
+    { id: 'reset', label: 'Reset All Filters', keywords: 'clear', onSelect: () => { handleResetFilters(); } },
+    { id: 'thisMonth', label: 'Filter: This Month', keywords: 'time period', onSelect: () => filters.setTimeFilter('lastMonth') },
+    { id: 'last3m', label: 'Filter: Last 3 Months', keywords: 'time period', onSelect: () => filters.setTimeFilter('last3Months') },
+    { id: 'last12m', label: 'Filter: Last 12 Months', keywords: 'time period', onSelect: () => filters.setTimeFilter('last12Months') },
+    { id: 'allTime', label: 'Filter: All Time', keywords: 'time period', onSelect: () => filters.setTimeFilter('all') },
+    { id: 'save', label: 'Export Backup (JSON)', keywords: 'download save', shortcut: 'Cmd+S', onSelect: () => handleSave() },
+  ], []);
 
   // Auto-load from IndexedDB on mount
   useEffect(() => {
@@ -275,6 +306,12 @@ const ExpenseTracker = () => {
     });
   }, [transactions, learnedMappings]);
 
+  const handleDateRangeSelect = useCallback((start, end) => {
+    filters.setStartDate(start);
+    filters.setEndDate(end);
+    filters.setTimeFilter('all');
+  }, []);
+
   const toggleCategoryVisibility = useCallback((category) => {
     setVisibleCategories(prev =>
       prev.includes(category)
@@ -413,6 +450,7 @@ const ExpenseTracker = () => {
               monthlyData={monthlyData}
               totalsChartData={totalsChartData}
               chartType={chartType}
+              onDateRangeSelect={handleDateRangeSelect}
             />
 
             <AnomalyAlerts transactions={transactions} />
@@ -499,6 +537,12 @@ const ExpenseTracker = () => {
           </div>
         </>
       )}
+
+      <CommandPalette
+        actions={commandActions}
+        isOpen={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+      />
 
       {toast && (
         <Toast

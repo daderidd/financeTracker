@@ -1,9 +1,29 @@
-import React from 'react';
-import { LineChart, BarChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import React, { useCallback } from 'react';
+import { LineChart, BarChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Brush } from 'recharts';
 
 const tooltipFormatter = (value) => `${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} CHF`;
 
-const MonthlyChart = ({ monthlyData, totalsChartData, chartType }) => {
+const MonthlyChart = ({ monthlyData, totalsChartData, chartType, onDateRangeSelect }) => {
+  const handleBrushChange = useCallback((range) => {
+    if (!range || !monthlyData || monthlyData.length === 0) return;
+    const { startIndex, endIndex } = range;
+    const startMonth = monthlyData[startIndex]?.month;
+    const endMonth = monthlyData[endIndex]?.month;
+    if (startMonth && endMonth && onDateRangeSelect) {
+      // Convert "Jan 2025" format to date string
+      const parseMonth = (str) => {
+        const [mon, year] = str.split(' ');
+        const months = { Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06', Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' };
+        return `${year}-${months[mon] || '01'}`;
+      };
+      const start = parseMonth(startMonth);
+      const end = parseMonth(endMonth);
+      onDateRangeSelect(`${start}-01`, `${end}-28`);
+    }
+  }, [monthlyData, onDateRangeSelect]);
+
+  const ChartComponent = chartType === 'bar' ? BarChart : LineChart;
+
   return (
     <div className="mb-6 p-4 bg-white rounded shadow">
       <h2 className="text-lg font-semibold mb-4">Financial Overview</h2>
@@ -26,6 +46,9 @@ const MonthlyChart = ({ monthlyData, totalsChartData, chartType }) => {
                   <Legend />
                   <Bar dataKey="expenses" name="Expenses" fill="#FF8042" />
                   <Bar dataKey="income" name="Income" fill="#0088FE" />
+                  {monthlyData.length > 3 && (
+                    <Brush dataKey="month" height={20} stroke="#8884d8" onChange={handleBrushChange} />
+                  )}
                 </BarChart>
               ) : (
                 <LineChart
@@ -39,6 +62,9 @@ const MonthlyChart = ({ monthlyData, totalsChartData, chartType }) => {
                   <Legend />
                   <Line type="monotone" dataKey="expenses" name="Expenses" stroke="#FF8042" activeDot={{ r: 8 }} />
                   <Line type="monotone" dataKey="income" name="Income" stroke="#0088FE" activeDot={{ r: 8 }} />
+                  {monthlyData.length > 3 && (
+                    <Brush dataKey="month" height={20} stroke="#8884d8" onChange={handleBrushChange} />
+                  )}
                 </LineChart>
               )}
             </ResponsiveContainer>
