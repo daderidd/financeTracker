@@ -6,6 +6,7 @@ import { categorizeTransaction, buildMappingsIndex, learnFromEdit } from '../uti
 import { computeTotals, computeTotalsChartData, computeMonthlyData, computeCategoryData, computeSubcategoryData, computeMonthlyCategoryData, getAllCategories, getSubcategoriesForCategory } from '../utils/dataTransformations';
 import { saveState, loadState } from '../utils/persistence';
 import AnomalyAlerts from './AnomalyAlerts';
+import CashFlowDiagram from './CashFlowDiagram';
 import CommandPalette from './CommandPalette';
 import ExportMenu from './ExportMenu';
 import FileUpload from './FileUpload';
@@ -22,6 +23,7 @@ import LearnedMappingsViewer from './LearnedMappingsViewer';
 import SummaryBar from './SummaryBar';
 import TopMerchants from './TopMerchants';
 import Toast from './Toast';
+import SplitTransactionModal from './SplitTransactionModal';
 import TransactionsTable from './TransactionsTable';
 
 const ExpenseTracker = () => {
@@ -39,6 +41,7 @@ const ExpenseTracker = () => {
   const [autoSaveStatus, setAutoSaveStatus] = useState(null); // 'saving' | 'saved' | 'error'
   const [toast, setToast] = useState(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [splittingTransaction, setSplittingTransaction] = useState(null);
   const hasHydrated = useRef(false);
 
   // Filter hook
@@ -307,6 +310,30 @@ const ExpenseTracker = () => {
     });
   }, [transactions, learnedMappings]);
 
+  const handleSplitTransaction = useCallback((transactionId, splits) => {
+    setTransactions(prev => {
+      const original = prev.find(t => t.id === transactionId);
+      if (!original) return prev;
+
+      // Hide the original and create split children
+      const splitTxs = splits.map((split, i) => ({
+        ...original,
+        id: `${original.id}-split-${i}`,
+        parentId: original.id,
+        value: original.type === 'expense' ? -split.amount : split.amount,
+        amount: split.amount,
+        category: { name: split.category, sub: split.subcategory || '' },
+        description: `${original.description} [${split.category}]`,
+        isSplit: true,
+      }));
+
+      return prev
+        .map(t => t.id === transactionId ? { ...t, hidden: true, hasSplits: true } : t)
+        .concat(splitTxs);
+    });
+    setSplittingTransaction(null);
+  }, []);
+
   const handleDateRangeSelect = useCallback((start, end) => {
     filters.setStartDate(start);
     filters.setEndDate(end);
@@ -463,6 +490,8 @@ const ExpenseTracker = () => {
               onDateRangeSelect={handleDateRangeSelect}
             />
 
+            <CashFlowDiagram totals={totals} categoryData={categoryData} />
+
             <AnomalyAlerts transactions={transactions} />
 
             <YearOverYearKPI
@@ -517,6 +546,7 @@ const ExpenseTracker = () => {
               allCategories={allCategories}
               getSubcategoriesForCategory={getSubcategoriesForCategoryFn}
               onUpdateCategory={updateTransactionCategory}
+              onSplitTransaction={(t) => setSplittingTransaction(t)}
             />
           </div>
 
@@ -546,6 +576,16 @@ const ExpenseTracker = () => {
             />
           </div>
         </>
+      )}
+
+      {splittingTransaction && (
+        <SplitTransactionModal
+          transaction={splittingTransaction}
+          allCategories={allCategories}
+          getSubcategoriesForCategory={getSubcategoriesForCategoryFn}
+          onSave={handleSplitTransaction}
+          onClose={() => setSplittingTransaction(null)}
+        />
       )}
 
       <CommandPalette

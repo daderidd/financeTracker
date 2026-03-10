@@ -32,6 +32,7 @@ const TransactionsTable = ({
   allCategories,
   getSubcategoriesForCategory,
   onUpdateCategory,
+  onSplitTransaction,
 }) => {
   const [editingTransaction, setEditingTransaction] = useState(null);
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
@@ -76,14 +77,23 @@ const TransactionsTable = ({
           transaction.type === 'expense' ? 'bg-red-50' : 'bg-green-50'
         } ${transaction.hidden ? 'opacity-60' : ''}`}
       >
-        {/* Hide */}
-        <div className="px-3 text-center shrink-0" style={{ flexBasis: COL.hide }}>
+        {/* Hide + Split */}
+        <div className="px-1 text-center shrink-0 flex items-center gap-0.5" style={{ flexBasis: COL.hide }}>
           <input
             type="checkbox"
             checked={transaction.hidden}
             onChange={() => onToggleHidden(transaction.id)}
             className="form-checkbox h-4 w-4 text-blue-600"
           />
+          {!transaction.isSplit && onSplitTransaction && (
+            <button
+              onClick={() => onSplitTransaction(transaction)}
+              className="text-xs text-gray-400 hover:text-blue-600"
+              title="Split transaction"
+            >
+              /
+            </button>
+          )}
         </div>
 
         {/* Date */}
