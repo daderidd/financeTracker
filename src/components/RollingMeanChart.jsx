@@ -1,19 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { COLORS } from '../utils/constants';
 import { computeRollingMean } from '../utils/dataTransformations';
 
 const RollingMeanChart = ({ filteredTransactions, visibleCategories, onToggleCategoryVisibility }) => {
   const [rollingMeanDays, setRollingMeanDays] = useState(30);
-  const [rollingMeanData, setRollingMeanData] = useState([]);
-  const [isComputingRollingMean, setIsComputingRollingMean] = useState(false);
 
-  const handleCompute = () => {
-    setIsComputingRollingMean(true);
-    const result = computeRollingMean(filteredTransactions, rollingMeanDays);
-    setRollingMeanData(result);
-    setIsComputingRollingMean(false);
-  };
+  const rollingMeanData = useMemo(
+    () => computeRollingMean(filteredTransactions, rollingMeanDays),
+    [filteredTransactions, rollingMeanDays]
+  );
 
   // Get unique categories from filtered transactions
   const categories = [...new Set(
@@ -39,16 +35,6 @@ const RollingMeanChart = ({ filteredTransactions, visibleCategories, onToggleCat
             <option value="60">60 days</option>
             <option value="90">90 days</option>
           </select>
-
-          <button
-            onClick={handleCompute}
-            disabled={isComputingRollingMean}
-            className={`px-3 py-1 rounded text-white ${
-              isComputingRollingMean ? 'bg-blue-400' : 'bg-blue-600 hover:bg-blue-700'
-            }`}
-          >
-            {isComputingRollingMean ? 'Computing...' : 'Compute'}
-          </button>
         </div>
       </div>
 
@@ -118,23 +104,14 @@ const RollingMeanChart = ({ filteredTransactions, visibleCategories, onToggleCat
             </LineChart>
           </ResponsiveContainer>
         ) : (
-          <div className="flex flex-col items-center justify-center h-full">
-            <p className="text-gray-500 mb-4">Click the Compute button to calculate the rolling mean.</p>
-            <button
-              onClick={handleCompute}
-              disabled={isComputingRollingMean}
-              className={`px-4 py-2 rounded text-white ${
-                isComputingRollingMean ? 'bg-blue-400' : 'bg-blue-600 hover:bg-blue-700'
-              }`}
-            >
-              {isComputingRollingMean ? 'Computing...' : 'Compute Rolling Mean'}
-            </button>
+          <div className="flex items-center justify-center h-full">
+            <p className="text-gray-400 text-sm">Select categories above to see their rolling mean spending.</p>
           </div>
         )}
       </div>
 
       <div className="mt-2 text-sm text-gray-500 text-center">
-        This chart shows the daily average spending for each category over a rolling {rollingMeanDays}-day period.
+        Daily average spending per category over a rolling {rollingMeanDays}-day period.
       </div>
     </div>
   );

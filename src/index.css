@@ -22,3 +22,8 @@ body {
   min-width: 320px;
   min-height: 100vh;
 }
+
+@keyframes slideUp {
+  from { transform: translateY(1rem); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}

@@ -41,14 +41,26 @@ const BudgetDashboard = ({ budgets, setBudgets, categoryData, allCategories, edi
 
   // Build progress data sorted by % spent (highest first)
   // Scale budget by number of months in the filtered period
-  const progressData = useMemo(() => budgetedCategories
-    .map(category => {
-      const spent = categoryData.find(c => c.name === category)?.value || 0;
-      const scaledBudget = budgets[category] * monthSpan;
-      const percent = scaledBudget > 0 ? spent / scaledBudget : 0;
-      return { category, spent, budget: scaledBudget, monthlyBudget: budgets[category], percent };
-    })
-    .sort((a, b) => b.percent - a.percent), [budgetedCategories, categoryData, budgets, monthSpan]);
+  // Include projected spend based on current spending rate
+  const progressData = useMemo(() => {
+    const now = new Date();
+    const periodEnd = endDate ? new Date(endDate) : now;
+    const periodStart = startDate ? new Date(startDate) : now;
+    const totalDays = Math.max(1, (periodEnd - periodStart) / (1000 * 60 * 60 * 24) + 1);
+    const daysElapsed = Math.max(1, Math.min(totalDays, (now - periodStart) / (1000 * 60 * 60 * 24) + 1));
+    const isCurrentPeriod = now >= periodStart && now <= periodEnd;
+
+    return budgetedCategories
+      .map(category => {
+        const spent = categoryData.find(c => c.name === category)?.value || 0;
+        const scaledBudget = budgets[category] * monthSpan;
+        const percent = scaledBudget > 0 ? spent / scaledBudget : 0;
+        const projected = isCurrentPeriod ? (spent / daysElapsed) * totalDays : null;
+        const projectedPercent = projected !== null && scaledBudget > 0 ? projected / scaledBudget : null;
+        return { category, spent, budget: scaledBudget, monthlyBudget: budgets[category], percent, projected, projectedPercent };
+      })
+      .sort((a, b) => b.percent - a.percent);
+  }, [budgetedCategories, categoryData, budgets, monthSpan, startDate, endDate]);
 
   const getBarColor = (percent) => {
     if (percent > 1) return 'bg-red-500';
@@ -70,7 +82,7 @@ const BudgetDashboard = ({ budgets, setBudgets, categoryData, allCategories, edi
       <div className="mt-6 p-4 bg-white rounded shadow">
         <h2 className="text-lg font-semibold mb-4">Budget Targets <span className="text-sm font-normal text-gray-500">({monthSpan === 1 ? 'this month' : `${monthSpan} months`})</span></h2>
         <div className="space-y-3">
-          {progressData.map(({ category, spent, budget, percent }) => (
+          {progressData.map(({ category, spent, budget, percent, projected, projectedPercent }) => (
             <div key={category}>
               <div className="flex justify-between text-sm mb-1">
                 <span className="font-medium">{category}</span>
@@ -79,14 +91,30 @@ const BudgetDashboard = ({ budgets, setBudgets, categoryData, allCategories, edi
                   {percent > 1 && ` (+${formatCurrency(spent - budget)})`}
                 </span>
               </div>
-              <div className={`w-full h-3 rounded-full ${getBarBg(percent)}`}>
+              <div className={`w-full h-3 rounded-full ${getBarBg(percent)} relative overflow-hidden`}>
+                {projectedPercent !== null && projectedPercent > percent && (
+                  <div
+                    className="absolute h-3 rounded-full bg-current opacity-15"
+                    style={{
+                      width: `${Math.min(projectedPercent * 100, 150)}%`,
+                      color: projectedPercent > 1 ? '#ef4444' : '#eab308',
+                    }}
+                  />
+                )}
                 <div
-                  className={`h-3 rounded-full transition-all ${getBarColor(percent)}`}
-                  style={{ width: `${Math.min(percent * 100, 100)}%` }}
+                  className={`h-3 rounded-full transition-all relative ${getBarColor(percent)}`}
+                  style={{ width: `${Math.min(percent * 100, 150)}%` }}
                 />
               </div>
-              <div className="text-xs text-gray-400 mt-0.5 text-right">
-                {(percent * 100).toFixed(0)}%
+              <div className="flex justify-between text-xs mt-0.5">
+                <span className="text-gray-400">{(percent * 100).toFixed(0)}%</span>
+                {projectedPercent !== null && (
+                  <span className={projectedPercent > 1 ? 'text-red-500' : 'text-green-600'}>
+                    {projectedPercent > 1
+                      ? `Projected to exceed by ${formatCurrency(projected - budget)}`
+                      : 'On track'}
+                  </span>
+                )}
               </div>
             </div>
           ))}
@@ -113,7 +141,7 @@ const BudgetDashboard = ({ budgets, setBudgets, categoryData, allCategories, edi
       {/* Progress bars */}
       {progressData.length > 0 && (
         <div className="space-y-3 mb-4">
-          {progressData.map(({ category, spent, budget, percent }) => (
+          {progressData.map(({ category, spent, budget, percent, projected, projectedPercent }) => (
             <div key={category}>
               <div className="flex justify-between text-sm mb-1">
                 <span className="font-medium">{category}</span>
@@ -122,14 +150,30 @@ const BudgetDashboard = ({ budgets, setBudgets, categoryData, allCategories, edi
                   {percent > 1 && ` (+${formatCurrency(spent - budget)})`}
                 </span>
               </div>
-              <div className={`w-full h-3 rounded-full ${getBarBg(percent)}`}>
+              <div className={`w-full h-3 rounded-full ${getBarBg(percent)} relative overflow-hidden`}>
+                {projectedPercent !== null && projectedPercent > percent && (
+                  <div
+                    className="absolute h-3 rounded-full bg-current opacity-15"
+                    style={{
+                      width: `${Math.min(projectedPercent * 100, 150)}%`,
+                      color: projectedPercent > 1 ? '#ef4444' : '#eab308',
+                    }}
+                  />
+                )}
                 <div
-                  className={`h-3 rounded-full transition-all ${getBarColor(percent)}`}
-                  style={{ width: `${Math.min(percent * 100, 100)}%` }}
+                  className={`h-3 rounded-full transition-all relative ${getBarColor(percent)}`}
+                  style={{ width: `${Math.min(percent * 100, 150)}%` }}
                 />
               </div>
-              <div className="text-xs text-gray-400 mt-0.5 text-right">
-                {(percent * 100).toFixed(0)}%
+              <div className="flex justify-between text-xs mt-0.5">
+                <span className="text-gray-400">{(percent * 100).toFixed(0)}%</span>
+                {projectedPercent !== null && (
+                  <span className={projectedPercent > 1 ? 'text-red-500' : 'text-green-600'}>
+                    {projectedPercent > 1
+                      ? `Projected to exceed by ${formatCurrency(projected - budget)}`
+                      : 'On track'}
+                  </span>
+                )}
               </div>
             </div>
           ))}

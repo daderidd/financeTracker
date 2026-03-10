@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useTransactionFilters } from '../hooks/useTransactionFilters';
 import { parseCardTransactions, parseAccountTransactions, loadTransactionsFromFile, saveTransactionsToFile } from '../utils/csvParsing';
 import { mergeTransactions } from '../utils/transactionUtils';
 import { categorizeTransaction, buildMappingsIndex, learnFromEdit } from '../utils/categorize';
 import { computeTotals, computeTotalsChartData, computeMonthlyData, computeCategoryData, computeSubcategoryData, computeMonthlyCategoryData, getAllCategories, getSubcategoriesForCategory } from '../utils/dataTransformations';
+import { saveState, loadState } from '../utils/persistence';
 import FileUpload from './FileUpload';
 import FilterControls from './FilterControls';
 import MonthlyChart from './MonthlyChart';
@@ -14,6 +15,8 @@ import MonthlyCategoryBreakdown from './MonthlyCategoryBreakdown';
 import BudgetDashboard from './BudgetDashboard';
 import CategoryRulesEditor from './CategoryRulesEditor';
 import LearnedMappingsViewer from './LearnedMappingsViewer';
+import SummaryBar from './SummaryBar';
+import Toast from './Toast';
 import TransactionsTable from './TransactionsTable';
 
 const ExpenseTracker = () => {
@@ -28,9 +31,44 @@ const ExpenseTracker = () => {
   const [activeCategory, setActiveCategory] = useState(null);
   const [visibleCategories, setVisibleCategories] = useState([]);
   const [activeTab, setActiveTab] = useState('overview');
+  const [autoSaveStatus, setAutoSaveStatus] = useState(null); // 'saving' | 'saved' | 'error'
+  const [toast, setToast] = useState(null);
+  const hasHydrated = useRef(false);
 
   // Filter hook
   const filters = useTransactionFilters(transactions);
+
+  // Auto-load from IndexedDB on mount
+  useEffect(() => {
+    loadState().then(saved => {
+      if (saved && Array.isArray(saved.transactions) && saved.transactions.length > 0) {
+        setTransactions(saved.transactions);
+        if (saved.budgets) setBudgets(saved.budgets);
+        if (saved.customRules) setCustomRules(saved.customRules);
+        if (saved.learnedMappings) setLearnedMappings(saved.learnedMappings);
+
+        const dates = saved.transactions.filter(t => t.date).map(t => t.date).sort();
+        if (dates.length > 0) {
+          filters.setStartDate(dates[0]);
+          filters.setEndDate(dates[dates.length - 1]);
+        }
+        setAutoSaveStatus('saved');
+      }
+      hasHydrated.current = true;
+    });
+  }, []);
+
+  // Auto-save to IndexedDB (debounced 2s)
+  useEffect(() => {
+    if (!hasHydrated.current || transactions.length === 0) return;
+    const timer = setTimeout(() => {
+      setAutoSaveStatus('saving');
+      saveState({ version: 2, transactions, budgets, customRules, learnedMappings })
+        .then(() => setAutoSaveStatus('saved'))
+        .catch(() => setAutoSaveStatus('error'));
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [transactions, budgets, customRules, learnedMappings]);
 
   // Sync visibleCategories when categoryFilter changes
   useEffect(() => {
@@ -83,6 +121,13 @@ const ExpenseTracker = () => {
           const accountTransactions = await parseAccountTransactions(file);
           newTransactions = [...newTransactions, ...accountTransactions];
         }
+      }
+
+      if (newTransactions.length === 0) {
+        const names = Array.from(files).map(f => f.name).join(', ');
+        setError(`No transactions found in: ${names}. Files must be named card_transactions*.csv or account_transactions*.csv.`);
+        setIsLoading(false);
+        return;
       }
 
       // Re-categorize using full chain (custom rules + learned mappings + hardcoded)
@@ -201,9 +246,12 @@ const ExpenseTracker = () => {
 
   const updateTransactionCategory = useCallback((transactionId, categoryName, subcategoryName) => {
     const transaction = transactions.find(t => t.id === transactionId);
-    if (transaction) {
-      setLearnedMappings(prev => learnFromEdit(prev, transaction, categoryName, subcategoryName));
-    }
+    if (!transaction) return;
+
+    const prevCategory = transaction.category;
+    const prevMappings = learnedMappings;
+
+    setLearnedMappings(prev => learnFromEdit(prev, transaction, categoryName, subcategoryName));
     setTransactions(prev =>
       prev.map(t =>
         t.id === transactionId
@@ -211,7 +259,18 @@ const ExpenseTracker = () => {
           : t
       )
     );
-  }, [transactions]);
+
+    const desc = transaction.description?.slice(0, 30) || 'Transaction';
+    setToast({
+      message: `"${desc}" → ${categoryName}${subcategoryName ? ` / ${subcategoryName}` : ''}`,
+      onUndo: () => {
+        setTransactions(prev =>
+          prev.map(t => t.id === transactionId ? { ...t, category: prevCategory } : t)
+        );
+        setLearnedMappings(prevMappings);
+      },
+    });
+  }, [transactions, learnedMappings]);
 
   const toggleCategoryVisibility = useCallback((category) => {
     setVisibleCategories(prev =>
@@ -259,6 +318,7 @@ const ExpenseTracker = () => {
         onFileUpload={handleFileUpload}
         onLoadFile={handleLoadFile}
         onSave={handleSave}
+        autoSaveStatus={autoSaveStatus}
       />
 
       {transactions.length > 0 && (
@@ -283,6 +343,15 @@ const ExpenseTracker = () => {
             maxAmount={filters.maxAmount}
             setMaxAmount={filters.setMaxAmount}
             onResetFilters={handleResetFilters}
+          />
+
+          <SummaryBar
+            totals={totals}
+            transactionCount={filteredForCharts.length}
+            budgets={budgets}
+            categoryData={categoryData}
+            startDate={filters.startDate}
+            endDate={filters.endDate}
           />
 
           {/* Tab navigation */}
@@ -420,6 +489,15 @@ const ExpenseTracker = () => {
             />
           </div>
         </>
+      )}
+
+      {toast && (
+        <Toast
+          key={Date.now()}
+          message={toast.message}
+          onUndo={toast.onUndo}
+          onDismiss={() => setToast(null)}
+        />
       )}
     </div>
   );
